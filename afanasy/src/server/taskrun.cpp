@@ -1,4 +1,7 @@
 #include "taskrun.h"
+#ifdef LINUX
+#include "../image_lab/tile_store.h"
+#endif
 
 #include "../libafanasy/blockdata.h"
 #include "../libafanasy/environment.h"
@@ -63,6 +66,18 @@ TaskRun::TaskRun( Task * runningTask,
    m_tasknum = m_exec->getTaskNum();
    m_hostId = render->getId();
    m_progress->hostname = render->getName();
+	if (m_exec->getServiceType() == "image_tile")
+	{
+		m_exec->setNumber(m_progress->starts_count);
+		m_exec->joinEnvironment({{"IMAGE_ATTEMPT", std::to_string(m_progress->starts_count)}});
+#ifdef LINUX
+		static int dispatchSequence = 0;
+		try {
+			image_lab::event(image_lab::jobDirectory(m_exec->getEnv().at("IMAGE_JOB_KEY")),
+				m_tasknum, m_progress->starts_count, "dispatched", ++dispatchSequence);
+		} catch (const std::exception &e) { AF_ERR << e.what(); }
+#endif
+	}
 	m_exec->setProgress( m_progress);
    render->setTask( m_exec, monitoring);
    m_task->v_monitor( monitoring );
@@ -105,6 +120,9 @@ void TaskRun::update(const af::MCTaskUp& taskup, RenderContainer * renders, Moni
 		return;
 	}
 	
+	if (m_exec->getServiceType() == "image_tile" && taskup.getNumber() != m_exec->getNumber())
+		return;
+
 	m_progress->time_done = time( NULL);
 	if (taskup.hasActivity() ) m_progress->activity  = taskup.getActivity();
 	if (taskup.hasResources()) m_progress->resources = taskup.getResources();
@@ -185,6 +203,23 @@ void TaskRun::update(const af::MCTaskUp& taskup, RenderContainer * renders, Moni
 			}
 		}
 
+		#ifdef LINUX
+		if (m_exec->getServiceType() == "image_tile")
+		{
+			try
+			{
+				const std::string dir = image_lab::jobDirectory(m_exec->getEnv().at("IMAGE_JOB_KEY"));
+				image_lab::commit(dir, m_tasknum, m_exec->getNumber());
+			}
+			catch (const std::exception &e)
+			{
+				m_progress->state |= AFJOB::STATE_ERROR_MASK;
+				++m_progress->errors_count;
+				finish(std::string("Tile commit failed: ") + e.what(), renders, monitoring);
+				break;
+			}
+		}
+#endif
 		m_progress->state = m_progress->state | AFJOB::STATE_DONE_MASK;
 		finish( message, renders, monitoring);
 		break;

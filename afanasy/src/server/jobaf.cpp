@@ -946,8 +946,61 @@ RenderAf * JobAf::v_solve( std::list<RenderAf*> & i_renders_list, MonitorContain
 	return NULL;
 }
 
+bool JobAf::isImageJob() const
+{
+	return m_blocks_num == 1 && m_blocks_data[0]->getService() == "image_tile";
+}
+
+void JobAf::refreshImageQueue()
+{
+	if (!isImageJob()) return;
+	// Job updates and the solver run on the server's main run cycle.
+	static uint64_t sequence = 0;
+	m_image_ready_order.resize(m_blocks_data[0]->getTasksNum());
+	for (size_t t = 0; t < m_image_ready_order.size(); ++t)
+	{
+		if (!(m_progress->tp[0][t]->state & AFJOB::STATE_READY_MASK))
+			m_image_ready_order[t] = 0;
+		else if (!m_image_ready_order[t])
+			m_image_ready_order[t] = ++sequence;
+	}
+}
+
+bool JobAf::solveImageTile(RenderAf *render, MonitorContainer *monitoring)
+{
+	JobAf *winner = NULL;
+	int tile = -1;
+	uint64_t oldest = 0;
+	for (JobContainerIt it(ms_jobs); it.job(); it.next())
+	{
+		JobAf *job = it.job();
+		if (job->m_image_ready_order.empty() || !job->canRun() || !job->canRunOn(render))
+			continue;
+		if (!job->m_user->canRun() || !job->m_user->canRunOn(render) ||
+		    !job->m_branch_srv->canRun() || !job->m_branch_srv->canRunOn(render))
+			continue;
+		for (size_t t = 0; t < job->m_image_ready_order.size(); ++t)
+		{
+			uint64_t order = job->m_image_ready_order[t];
+			if (!order || job->m_blocks[0]->m_tasks[t]->avoidHostsCheck(render->getName()))
+				continue;
+			if (!winner || job->getPriority() > winner->getPriority() ||
+			    (job->getPriority() == winner->getPriority() && order < oldest))
+			{
+				winner = job;
+				tile = int(t);
+				oldest = order;
+			}
+		}
+	}
+	if (winner != this || !solveTaskOnRender(render, 0, tile, monitoring)) return false;
+	if (!render->isOffline()) m_image_ready_order[tile] = 0;
+	return true;
+}
+
 bool JobAf::solveOnRender( RenderAf * i_render, MonitorContainer * i_monitoring)
 {
+	if (isImageJob()) return solveImageTile(i_render, i_monitoring);
 	// Prepare for the new solving (reset previous solvind stored data):
 	for( int b = 0; b < m_blocks_num; b++)
 	{
@@ -1317,6 +1370,7 @@ void JobAf::v_refresh( time_t currentTime, AfContainer * pointer, MonitorContain
 	
 	if(( monitoring ) &&  ( jobchanged )) monitoring->addJobEvent( jobchanged, getId(), getUid());
 
+	refreshImageQueue();
 	if (isDone())
 		m_force_refresh = false;
 }

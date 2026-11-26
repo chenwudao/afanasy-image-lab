@@ -164,6 +164,11 @@ private:
 	void initializeValues();
 	void initStoreDirs();
 
+	std::vector<uint64_t> m_image_ready_order;
+	bool isImageJob() const;
+	void refreshImageQueue();
+	bool solveImageTile(RenderAf *render, MonitorContainer *monitoring);
+
 	bool solveOnRender( RenderAf * i_render, MonitorContainer * i_monitoring);
 
 	bool solveTaskOnRender(RenderAf * i_render, int i_block_num, int i_task_num, MonitorContainer * i_monitoring);

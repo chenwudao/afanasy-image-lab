@@ -8,6 +8,10 @@ else( PostgreSQL_FOUND )
 	add_definitions( -DNO_POSTGRESQL )
 endif( PostgreSQL_FOUND )
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	list(APPEND src ../../image_lab/tile_store.cpp)
+	add_executable(af-image-worker ../../image_lab/worker.cpp ../../image_lab/tile_store.cpp)
+endif()
 add_executable(afserver ${src} ${inc})
 
 if( NOT $ENV{AF_ADD_CFLAGS} STREQUAL "" )

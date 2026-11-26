@@ -1,0 +1,30 @@
+name: Image Lab Linux integration
+on:
+  push:
+    branches: [main, 'verify/image-lab-*']
+    paths: ['afanasy/src/**', 'course/**', 'afanasy/python/services/image_tile.py', '.github/workflows/image-lab.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native server, render and tile worker
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-dev libzip-dev
+          export AF_GUI=NO AF_POSTGRESQL=NO AF_OSTYPE=linux
+          cmake -S afanasy/src/project.cmake -B "$RUNNER_TEMP/af/build/native" -DBUILD_TESTING=OFF
+          cmake --build "$RUNNER_TEMP/af/build/native" --target afserver afrender af-image-worker -j4
+          echo "$(dirname "$(find "$RUNNER_TEMP" "$GITHUB_WORKSPACE" -type f -name afserver -executable | head -1)")" >> "$GITHUB_PATH"
+          echo "$(dirname "$(find "$RUNNER_TEMP" "$GITHUB_WORKSPACE" -type f -name af-image-worker -executable | head -1)")" >> "$GITHUB_PATH"
+      - name: Exercise Afanasy with four local renders
+        run: python3 -u course/integration.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: image-lab-evidence
+          path: course-runtime/
