@@ -73,3 +73,10 @@ ipch
 
 # Apple Crap(tm)
 .DS_Store
+
+# Course runtime output and local configuration
+/course-runtime/
+/course-local/
+/course-uploads/
+/course-logs/
+/disk.img

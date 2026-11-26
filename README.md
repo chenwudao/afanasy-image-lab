@@ -1,77 +1,65 @@
-## CGRU <img src="https://raw.githubusercontent.com/CGRU/cgru/master/favicon.ico" align="right" width="90">
+# Afanasy Image Lab
 
-CGRU is the Computer Graphics Tools Pack.
+基于 CGRU/Afanasy 的单机 Linux 并行图像处理与故障恢复课设。用户上传图片，观察各图块的处理过程，再下载完整结果。管理员可以终止忙碌的计算进程，追踪受影响图块如何重新入队并完成。
 
-It consists of the main tools _Afanasy_ and _Rules_.
-Other tools are arranged as satellites around these two,
-like _dailies encoding scripts_ and _software submission plug-ins_.
+## 当前状态与上游
 
-**Afanasy** is a render farm manager.
+本次提交保存上游源码和课程实施方案。下列图像作业、双角色界面、自建文件系统与扩展均为待实现、待验收功能。上游基线为 [CGRU/cgru 的 a51c6e3](https://github.com/CGRU/cgru/tree/a51c6e393567ec61e996810c43c72fa87bfba0bf)。原版使用说明见 [上游 README](https://github.com/CGRU/cgru/blob/a51c6e393567ec61e996810c43c72fa87bfba0bf/README.md)，版权与许可见 [LICENSE.txt](LICENSE.txt) 及各组件内的许可文件。
 
-**Rules** is a Web based CG projects tracker.
+## 运行结构与用户角色
 
-[Site](https://cgru.info)
+一台 Linux 主机上运行一个 afserver 和四个独立标识的 afrender。每个执行端同时承接一块，启动真实的 C++ 图块计算子进程，记录执行端名称、计算 PID 和尝试编号。浏览器通过 localhost 连入，普通窗口与无痕窗口可同时用于演示。
 
-[Documentation](https://cgru.readthedocs.io)
+| 使用者 | 操作与权限 |
+|---|---|
+| 普通用户 | 登录、上传图片、选择灰度化或反色、设置优先级，查看本人作业的画布和尝试历史，下载结果。 |
+| 管理员 | 查看全部作业、就绪队列、执行端和 PID 时间线，选择并终止忙碌的计算进程。 |
 
-[Forum](https://forum.cgru.info)
+服务端校验身份、作业归属和管理员操作权限。终止前核对 PID 是否仍对应页面选中的执行尝试。
 
-You can ask any questions on the CGRU forum.
+## 系统设计与复用范围
 
-GitHub issues are used for code development and bug tracking.
+- **管理台**复用 [Afanasy 浏览器界面](afanasy/browser) 中的作业列表、任务详情、节点状态、日志和缩略图交互。新增上传与下载页、图块画布及尝试历史。所有视图使用同一作业编号与图块编号，已完成块展示实际像素。
+- **服务端**在 [afserver](afanasy/src/server) 中接入图像作业、提交校验及任务状态更新，一张图对应一个作业，一个图块对应一条任务。用两条全局 FIFO 实现非抢占式优先级调度。高优先级块先领取，同级按入队顺序派发。
+- **执行端**通过 [afrender](afanasy/src/render) 的任务执行和通信机制调用 C++ 图块程序。通过 Linux 进程间通信交换任务与结果。OpenCV 负责内存编解码，首版采用 CPU 灰度化、反色，输出无损 PNG。
+- **持久化**自行实现固定容量 inode 磁盘镜像，包含超级块、inode 表、空闲数据块位图和数据区。支持多级目录、路径解析、创建删除、读写及块分配回收。原图、作业描述、完成块与最终图都经此接口保存。
 
-### Coding rules:
+## 一次作业的执行与恢复
 
-- Indentation - TABS. You can vary tab length, default 4 spaces length is normal.
-	- Python Indentation - SPACES(4). It is not a problem to tune any modern text editor for each file type.
-- Code alignment - SPACES, it should not break on various tab length.
-- Variable names: variable_name.
-- Function names: functionName.
-- Class names: ClassName.
-- Use prefixes to make code more readable:
-	- `i_` - Input variables.
-	- `o_` - Output variables.
-	- `m_` - Class members.
-	- `ms_` - Static class members.
-	- `g_` - External variables.
-	- `v_` - Virtual functions.
-- Do not use "!" as NOT, since it is not noticeable for doing code review. It is much more easy to notice `false == `.
-- Use `false == var` and `NULL == val` instead of `var == false` or `var == NULL`.
-As if you miss one '=' character, it will not be an error, it will be assignment, not comparison.
-- Use `const &` to pass complex types as function parameters to not to copy class instance.
+1. 服务端保存原图和参数，生成矩形图块清单。边缘块记录实际坐标、宽高。
+2. 空闲执行端领取图块，服务端记录作业、图块、尝试编号、PID 与派发时间。
+3. 服务端接收结果，校验当前尝试、矩形及数据长度。完整像素写入镜像并确认提交后，才增加完成数、刷新画布。重复或过期回报不会重复计数。
+4. 子进程被终止时，父进程检测退出并回收，服务端记录结束时间及原因。未提交块按原优先级重新入队，由新的计算进程接手。其他进程继续运行。
+5. 全部图块成功提交后按坐标拼图，最终文件写入成功后开放下载。磁盘满和部分写入须返回可观察的错误。正常重启后仍能导出已完成作业。
 
-#### Example:
+## 扩展功能
 
-```c
-// Function with long parameters list:
-bool someFunction(std::string &o_status, const std::string &i_param1, const std::string &i_param2,
-	const std::string &i_param3, const std::string &i_param4)
-{
-	...
+| 功能 | 设计与验收证据 |
+|---|---|
+| LRU 块缓存 | 容量可调，首版写穿。同一访问序列从冷缓存开始，比较命中率及实际磁盘读取次数。 |
+| 整盘备份恢复 | 暂缓新提交，等待在途写入结束并刷盘后复制一致镜像。在独立副本中导出目录与图像并核对哈希。 |
+| 服务器崩溃续跑 | 持久化任务清单和可校验的提交记录，保障 inode、位图及数据更新的一致性。在计算中、数据已写未确认、已确认未拼图三个时点强制退出，重启后核对重算块号。 |
+| 调度策略对比 | 比较全局 FIFO 和高优先级优先策略。固定输入、块大小、Worker 数、到达顺序，关闭演示延时，重复测量高优先级首次等待时间和普通作业完成时间。 |
 
-	if (false == variable_name)
-	{
-		o_status = "error";
-		return false;
-	}
-	return true;
-}
-```
+## 四人团队分工
 
-You will notice, that some parts of the code are not following these rules. This
-is mostly because such code has been written before these rules were created or
-changed.
+成员姓名确定后替换 A–D。全员共同进行需求分析、接口评审、测试、优化及英文报告撰写。
 
-The typical file header and code style for C++ and JS files can automatically be applied with the script 
-[utilities/maintenance/codeStyleCheck.php](https://github.com/CGRU/cgru/blob/master/utilities/maintenance/codeStyleCheck.php) see the file for instructions of setup and usage. 
+| 成员 | 主责与接口 | 独立交付与验收 |
+|---|---|---|
+| A · 技术负责人 | 统筹集成；负责 afserver/afrender 对接、IPC、四进程管理、优先级调度和回收重派。向 D 输出事件，与 B 约定提交确认。 | 用四个真实 PID 演示非抢占优先级与同级 FIFO。分别从界面和终端终止忙碌进程，验证新尝试接手。 |
+| B · 文件系统与持久化 | 实现 inode 镜像、目录与块分配、结果提交、LRU 和一致性备份。与 A 共同负责崩溃续跑。 | 独立初始化和重开镜像，验证空间耗尽、部分写入、缓存对比和备份还原。提供三个崩溃时点的恢复记录。 |
+| C · 图像与实验 | 实现分块、C++ 像素运算、拼图及串行参考。与 A 定义图块载荷，与 B 定义结果格式。设计调度对比负载。 | 用非整除尺寸及边缘块测试逐像素比较，整理可复现的作业参数、策略数据及环境说明。 |
+| D · 客户端与可视化 | 接入双角色页面和服务端权限检查；实现图块画布、进程时间线、尝试详情与下载。与 A 对齐事件，与 B、C 对齐像素预览。 | 双会话演示并发与权限隔离，通过画布追踪同一图块两次尝试，整理运行指引与英文答辩材料。 |
 
-The file header shall contain as much information as possible about the file, you can find a good example here:
-[afanasy/browser/monitor.js](https://github.com/CGRU/cgru/blob/master/afanasy/browser/monitor.js)
-### Some names:
-**CGRU** - came from CG - Rules. It has two meanings: computer graphics principles and computer graphics is a cool thing.
+## 验收与复现
 
-**Afanasy** - came from a Greek name meaning [immortal](http://en.wikipedia.org/wiki/Afanasy). 
+使用两个独立会话提交普通作业与高优先级作业。选择宽高均不能整除块大小的输入，在普通队列仍积压且四个进程忙碌时提交高优先级作业。通过真实队列与 PID 时间线解释下一次派发。在管理员界面终止一个忙碌进程，另一次测试从终端终止。核对同一图块的两次尝试、唯一提交和最终图像的串行逐像素校验结果。
 
-**Rules** - simple came from rules! This project tracker is based on defined rules.
-Mostly project structure rules, where to store sources, references, dailies, outputs.
-As Rules does not have its own database, it walks file-server folders structure.
+首次集成验证以“图块成功写入镜像后，Afanasy 任务窗口才显示完成，并展示从镜像读回的像素”为通过条件。正式交付时提供经验证的构建启动命令、测试账号、镜像初始化方法、示例图片及参数、事件日志、测试环境、英文报告和答辩 PPT。
+
+## 参考资料
+
+- [Afanasy Web GUI](https://cgru.readthedocs.io/en/latest/afanasy/webgui.html) 与 [执行端及缩略图](https://cgru.readthedocs.io/en/latest/afanasy/render.html)
+- [Flamenco 单图分块与合并脚本](https://flamenco.blender.org/third-party-jobs/single-image/single_image_render.js)
+- [xv6 磁盘镜像布局](https://github.com/mit-pdos/xv6-riscv/blob/riscv/mkfs/mkfs.c) 与 [MIT MapReduce 故障实验](https://pdos.csail.mit.edu/6.5840/labs/lab-mr.html)
