@@ -21,6 +21,10 @@ jobs:
           cmake --build "$RUNNER_TEMP/af/build/native" --target afserver afrender af-image-worker -j4
           echo "$(dirname "$(find "$RUNNER_TEMP" "$GITHUB_WORKSPACE" -type f -name afserver -executable | head -1)")" >> "$GITHUB_PATH"
           echo "$(dirname "$(find "$RUNNER_TEMP" "$GITHUB_WORKSPACE" -type f -name af-image-worker -executable | head -1)")" >> "$GITHUB_PATH"
+      - name: Verify the B commit contract
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror course/store_test.cpp afanasy/src/image_lab/tile_store.cpp -o "$RUNNER_TEMP/store-test"
+          "$RUNNER_TEMP/store-test" "$(mktemp -d)"
       - name: Exercise Afanasy with four local renders
         run: python3 -u course/integration.py
       - uses: actions/upload-artifact@v4

@@ -14,6 +14,9 @@
 	This is a server side of an Afanasy job.
 */
 #include "jobaf.h"
+#ifdef LINUX
+#include "../image_lab/tile_store.h"
+#endif
 
 #include "../include/afanasy.h"
 
@@ -961,8 +964,15 @@ void JobAf::refreshImageQueue()
 	{
 		if (!(m_progress->tp[0][t]->state & AFJOB::STATE_READY_MASK))
 			m_image_ready_order[t] = 0;
-		else if (!m_image_ready_order[t])
+		else if (!m_image_ready_order[t]) {
 			m_image_ready_order[t] = ++sequence;
+#ifdef LINUX
+			const auto &env = m_blocks_data[0]->getEnvironment();
+			auto key = env.find("IMAGE_JOB_KEY");
+			if (m_progress->tp[0][t]->starts_count && key != env.end())
+				image_lab::observe(key->second, int(t), m_progress->tp[0][t]->starts_count, "requeued");
+#endif
+		}
 	}
 }
 
@@ -974,7 +984,7 @@ bool JobAf::solveImageTile(RenderAf *render, MonitorContainer *monitoring)
 	for (JobContainerIt it(ms_jobs); it.job(); it.next())
 	{
 		JobAf *job = it.job();
-		if (job->m_image_ready_order.empty() || !job->canRun() || !job->canRunOn(render))
+		if (!job->isImageJob() || job->m_image_ready_order.empty() || !job->canRun() || !job->canRunOn(render))
 			continue;
 		if (!job->m_user->canRun() || !job->m_user->canRunOn(render) ||
 		    !job->m_branch_srv->canRun() || !job->m_branch_srv->canRunOn(render))

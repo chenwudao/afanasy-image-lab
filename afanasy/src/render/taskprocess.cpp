@@ -35,6 +35,9 @@ extern void (*fp_setupChildProcess)( void);
 #include "../libafanasy/msgclasses/mctaskup.h"
 
 #include "renderhost.h"
+#ifdef LINUX
+#include "../image_lab/tile_store.h"
+#endif
 #include "parserhost.h"
 
 #define AFOUTPUT
@@ -651,6 +654,19 @@ void TaskProcess::processFinished( int i_exitCode)
 		<< " Status=" << WEXITSTATUS( i_exitCode) << (m_stop_time ? " (stopped)":"")
 		<< " Time=" << af::time2strHMS(time(NULL) - m_command_launch_time, true);
 
+	#ifdef LINUX
+	if (m_taskexec->getServiceType() == "image_tile") {
+		const auto &env = m_taskexec->getEnv();
+		auto key = env.find("IMAGE_JOB_KEY");
+		if (key != env.end() && (WIFSIGNALED(i_exitCode) || WIFEXITED(i_exitCode))) {
+			const std::string reason = WIFSIGNALED(i_exitCode)
+				? "signal-" + std::to_string(WTERMSIG(i_exitCode))
+				: "exit-" + std::to_string(WEXITSTATUS(i_exitCode));
+			image_lab::observe(key->second, m_taskexec->getTaskNum(),
+				m_taskexec->getNumber(), reason, 0, m_pid);
+		}
+	}
+#endif
 	// Zero m_pid means that task is not running any more
 	m_pid = 0;
 

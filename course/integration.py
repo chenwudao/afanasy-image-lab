@@ -11,6 +11,7 @@ import tempfile
 import time
 
 from submit import submit
+from control import read_events, terminate_attempt
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "course-runtime"
@@ -43,7 +44,7 @@ def events(directory):
     file = directory / "events.tsv"
     if not file.exists():
         return []
-    return [line.split() for line in file.read_text().splitlines() if len(line.split()) == 5]
+    return [line.split() for line in file.read_text().splitlines() if len(line.split()) == 6]
 
 
 def start():
@@ -105,7 +106,7 @@ def run():
     until("normal job with retry", lambda: done(normal), 160)
     logs = events(low_dir)
     # Dispatch sequence is assigned by the server; process start order may differ.
-    sequence = [(d.name,int(r[1]),int(r[2]),int(r[4])) for d in (low_dir,hi_dir)
+    sequence = [(d.name,int(r[1]),int(r[2]),int(r[5])) for d in (low_dir,hi_dir)
                 for r in events(d) if r[3]=="dispatched"]
     sequence.sort(key=lambda row:row[3])
     assert [(d,t) for d,t,a,s in sequence[4:6]] == [(hi_dir.name,0),(hi_dir.name,1)], sequence
@@ -113,7 +114,27 @@ def run():
     assert any(r[1]==victim[1] and r[2]=="2" and r[3]=="started" and r[4]!=victim[4] for r in logs)
     assert len(list(low_dir.glob("tile-*.rgb"))) == 9
     assert b"".join((low_dir/f"tile-{t}.rgb").read_bytes() for t in range(9)) == bytes(255-p for p in pixels)
+    assert any(r[1:4] == [victim[1],"1","requeued"] for r in logs)
+    assert any(r[1:5] == [victim[1],"1","signal-9",str(pid)] for r in logs)
+    assert len([r for r in logs if r[3]=="committed"]) == 9
+    cursor, records = read_events(low_dir.name)
+    assert len(records) == len(logs) and read_events(low_dir.name, cursor) == (cursor, [])
     print("PASS four PIDs:", [r[4] for r in starts], "killed:", pid, "dispatch:", sequence)
+
+
+    admin_job, admin_dir = submit(bytes([1,2,3]),1,1,"invert",delay_ms=4000)
+    active = until("admin target started", lambda: next((e for e in events(admin_dir) if e[3]=="started"), None))
+    admin_pid = int(active[4])
+    try:
+        terminate_attempt(admin_dir.name, 0, 2, admin_pid)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("stale admin request was accepted")
+    terminate_attempt(admin_dir.name, 0, 1, admin_pid)
+    until("admin recovery", lambda: done(admin_job))
+    assert (admin_dir/"tile-0.rgb").read_bytes() == bytes([254,253,252])
+    print("PASS admin termination", events(admin_dir))
 
 
 try:

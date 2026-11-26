@@ -7,6 +7,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <sys/stat.h>
@@ -87,13 +88,17 @@ void commit(const std::string &dir, int tile, int attempt) {
     check(fsync(directory.fd) == 0, "cannot sync committed tile");
     unlink(staged.c_str());
 }
-void event(const std::string &dir, int tile, int attempt, const std::string &state, int pid) {
+void event(const std::string &dir, int tile, int attempt, const std::string &state, int pid, uint64_t dispatchSequence) {
     auto now = std::chrono::system_clock::now().time_since_epoch();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
     std::ostringstream line;
-    line << ms << ' ' << tile << ' ' << attempt << ' ' << state << ' ' << pid << '\n';
+    line << ms << '\t' << tile << '\t' << attempt << '\t' << state << '\t' << pid << '\t' << dispatchSequence << '\n';
     auto record = line.str();
     File log(open((dir+"/events.tsv").c_str(), O_WRONLY | O_CREAT | O_APPEND, 0600));
     writeAll(log.fd,record.data(),record.size());
+}
+void observe(const std::string &key, int tile, int attempt, const std::string &state, uint64_t sequence, int pid) {
+    try { event(jobDirectory(key),tile,attempt,state,pid,sequence); }
+    catch (const std::exception &e) { std::cerr << "image event: " << e.what() << '\n'; }
 }
 }

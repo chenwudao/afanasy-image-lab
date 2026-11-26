@@ -71,11 +71,10 @@ TaskRun::TaskRun( Task * runningTask,
 		m_exec->setNumber(m_progress->starts_count);
 		m_exec->joinEnvironment({{"IMAGE_ATTEMPT", std::to_string(m_progress->starts_count)}});
 #ifdef LINUX
-		static int dispatchSequence = 0;
-		try {
-			image_lab::event(image_lab::jobDirectory(m_exec->getEnv().at("IMAGE_JOB_KEY")),
-				m_tasknum, m_progress->starts_count, "dispatched", ++dispatchSequence);
-		} catch (const std::exception &e) { AF_ERR << e.what(); }
+		static uint64_t dispatchSequence = 0;
+		auto key = m_exec->getEnv().find("IMAGE_JOB_KEY");
+		if (key != m_exec->getEnv().end())
+			image_lab::observe(key->second, m_tasknum, m_progress->starts_count, "dispatched", ++dispatchSequence);
 #endif
 	}
 	m_exec->setProgress( m_progress);
@@ -203,16 +202,22 @@ void TaskRun::update(const af::MCTaskUp& taskup, RenderContainer * renders, Moni
 			}
 		}
 
-		#ifdef LINUX
+#ifdef LINUX
 		if (m_exec->getServiceType() == "image_tile")
 		{
 			try
 			{
 				const std::string dir = image_lab::jobDirectory(m_exec->getEnv().at("IMAGE_JOB_KEY"));
+				if (taskup.getStatus() != af::TaskExec::UPFinishedSuccess)
+					throw std::runtime_error("worker did not report a successful calculation");
 				image_lab::commit(dir, m_tasknum, m_exec->getNumber());
+				image_lab::observe(m_exec->getEnv().at("IMAGE_JOB_KEY"), m_tasknum, m_exec->getNumber(), "committed");
 			}
 			catch (const std::exception &e)
 			{
+				auto key = m_exec->getEnv().find("IMAGE_JOB_KEY");
+				if (key != m_exec->getEnv().end())
+					image_lab::observe(key->second, m_tasknum, m_exec->getNumber(), "commit_failed");
 				m_progress->state |= AFJOB::STATE_ERROR_MASK;
 				++m_progress->errors_count;
 				finish(std::string("Tile commit failed: ") + e.what(), renders, monitoring);
@@ -260,6 +265,14 @@ void TaskRun::update(const af::MCTaskUp& taskup, RenderContainer * renders, Moni
       }
       else
       {
+         #ifdef LINUX
+         if (m_exec->getServiceType() == "image_tile") {
+             auto key = m_exec->getEnv().find("IMAGE_JOB_KEY");
+             if (key != m_exec->getEnv().end())
+                 image_lab::observe(key->second, m_tasknum, m_exec->getNumber(),
+                     taskup.getStatus() == af::TaskExec::UPFinishedKilled ? "killed" : "failed");
+         }
+#endif
          // Task stop was not planned, it is an error in any case
          m_progress->state = m_progress->state | AFJOB::STATE_ERROR_MASK;
          // Increment number of errors before Finish provedure
