@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from urllib.error import HTTPError
 
 
 def check_console(runtime, until):
@@ -36,6 +37,15 @@ def check_console(runtime, until):
                         except OSError:
                             return False
                     until("web login",ready,20)
+                    import json
+                    config=json.loads(Path(os.environ["CGRU_CUSTOM_CONFIG"]).read_text())
+                    native_port=config["cgru_config"]["af_serverport"]
+                    try:
+                        urllib.request.urlopen(f"http://127.0.0.1:{native_port}/",timeout=4)
+                    except HTTPError as error:
+                        assert error.code==403
+                    else:
+                        raise AssertionError("native browser endpoint was accessible")
                     subprocess.run(["node",str(script/"browser_check.cjs"),base,str(runtime)],
                                    env=dict(os.environ,IMAGE_TEST_PASSWORD=password),check=True,timeout=240)
                 finally:

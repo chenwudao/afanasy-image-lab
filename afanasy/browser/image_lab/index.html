@@ -10,7 +10,7 @@
 <div id="console" hidden><aside><h2>提交图片</h2><form id="upload"><label>图片<input type="file" name="image" accept="image/png,image/jpeg" required></label>
 <label>处理操作<select name="operation"><option value="gray">灰度化</option><option value="invert">反色</option></select></label>
 <label>优先级<select name="priority"><option value="normal">普通</option><option value="high">高</option></select></label><button>提交作业</button></form>
-<h2 id="jobsTitle">我的作业</h2><nav id="jobs"></nav></aside>
+<section id="queuePanel" hidden><h2>全局就绪队列</h2><ol id="queue"></ol></section><h2 id="jobsTitle">我的作业</h2><nav id="jobs"></nav></aside>
 <article><p id="empty">请选择或提交一项作业。</p>
 <section id="workspace" hidden><div class="heading"><div><h1 id="title"></h1><p id="summary"></p></div><a id="download" hidden>下载 PNG</a></div>
 <h2>图块画布</h2><p id="progress"></p><div id="canvas" role="group" aria-label="图块画布"></div>

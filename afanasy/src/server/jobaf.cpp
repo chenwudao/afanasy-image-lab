@@ -969,8 +969,11 @@ void JobAf::refreshImageQueue()
 #ifdef LINUX
 			const auto &env = m_blocks_data[0]->getEnvironment();
 			auto key = env.find("IMAGE_JOB_KEY");
-			if (m_progress->tp[0][t]->starts_count && key != env.end())
-				image_lab::observe(key->second, int(t), m_progress->tp[0][t]->starts_count, "requeued");
+			if (key != env.end()) {
+				const int previous = m_progress->tp[0][t]->starts_count;
+				image_lab::observe(key->second, int(t), previous, previous ? "requeued" : "queued",
+					m_image_ready_order[t]);
+			}
 #endif
 		}
 	}

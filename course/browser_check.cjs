@@ -33,6 +33,8 @@ async function run(){
             assert.equal((await ordinary.request.get(base+"/api/jobs/"+foreign+suffix)).status(),404);
         }
         assert(!(await (await ordinary.request.get(base+"/api/jobs")).json()).some(j=>j.key===foreign));
+        assert.equal((await ordinary.request.get(base+"/api/queue")).status(),403);
+        assert.equal(await a.locator("#jobs button").filter({hasText:"source.jpg"}).count(),0);
         assert.equal((await ordinary.request.post(base+"/api/jobs/"+foreign+"/terminate",
             {headers:{"X-Image-Lab":"1"},data:{tile:0,attempt:1,pid:1}})).status(),403);
         await b.getByRole("button",{name:"退出登录"}).click();
@@ -54,6 +56,7 @@ async function run(){
         await history.getByText(/第 2 次 · 开始 · PID/).waitFor({timeout:60000});
         const next=Number((await history.getByText(/第 2 次 · 开始 · PID/).textContent()).match(/PID (\d+)/)[1]);
         assert.notEqual(old,next);
+        assert(await history.getByText(new RegExp("第 1 次 · 开始 · PID "+old+"$")).count());
         await history.getByText(/第 2 次 · 提交完成/).waitFor({timeout:90000});
         await b.screenshot({path:path.join(root,"admin-recovery.png"),fullPage:true});
         await a.getByRole("link",{name:"下载 PNG"}).waitFor({timeout:90000});

@@ -2,7 +2,7 @@
 const el = id => document.getElementById(id);
 const create = (tag, text) => Object.assign(document.createElement(tag), {textContent:text || ""});
 let user, key, cursor = 0, events = [], selected = 0, job, busy = false, version = 0, listSignature;
-const labels = {dispatched:"派发", started:"开始", killed:"已终止", failed:"失败", requeued:"重新入队",
+const labels = {queued:"进入队列",dispatched:"派发", started:"开始", killed:"已终止", failed:"失败", requeued:"重新入队",
                 committed:"提交完成", commit_failed:"提交失败"};
 const fmt = ms => new Date(ms).toLocaleTimeString("zh-CN", {hour12:false, fractionalSecondDigits:3,hour:"2-digit",minute:"2-digit",second:"2-digit"});
 function message(error) { el("notice").textContent = error.message || String(error); }
@@ -40,8 +40,13 @@ async function refresh() {
     if (!user || busy) return;
     busy=true;const at=version;
     try {
-        const jobs=await api("jobs");
+        const [jobs,ready]=await Promise.all([api("jobs"),user.role==="admin"?api("queue"):Promise.resolve(null)]);
         if(at!==version)return;
+        if(ready) {
+            el("queuePanel").hidden=false;
+            el("queue").replaceChildren(...ready.map(q=>create("li",(q.priority==="high"?"高":"普通")+" · "+q.filename+" · 图块 "+q.tile)));
+            if(!ready.length)el("queue").textContent="队列为空";
+        }
         const signature=JSON.stringify(jobs);
         if(signature!==listSignature){
             el("jobs").replaceChildren(...jobs.map(j=>{
@@ -110,6 +115,6 @@ function render(){
     native.updateProgress({state:done.has(selected)?"DON":attemptsForTile.some(r=>!r.end)?"RUN":"RDY",
                            str:attemptsForTile.length,err:history.filter(e=>e.state==="killed"||e.state==="failed").length});
     el("nativeTask").replaceChildren(native.element);
-    el("history").replaceChildren(...history.map(e=>create("li",fmt(e.time_ms)+" · 第 "+e.attempt+" 次 · "+(labels[e.state]||e.state)+(e.pid?" · PID "+e.pid:""))));
+    el("history").replaceChildren(...history.map(e=>create("li",fmt(e.time_ms)+(e.attempt?" · 第 "+e.attempt+" 次":"")+" · "+(labels[e.state]||e.state)+(e.pid?" · PID "+e.pid:""))));
 }
 api("me").then(signedIn).catch(()=>{});setInterval(refresh,800);

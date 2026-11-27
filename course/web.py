@@ -37,6 +37,7 @@ def connect():
 
 
 def initialize():
+    Path(os.environ["IMAGE_LAB_ROOT"]).mkdir(parents=True,exist_ok=True,mode=0o700)
     with closing(connect()) as db, db:
         db.executescript("""
             CREATE TABLE IF NOT EXISTS users(name TEXT PRIMARY KEY, password TEXT NOT NULL,
@@ -157,9 +158,15 @@ def create_app():
 
     @app.get("/api/jobs")
     def jobs():
+        return jsonify(visible_jobs())
+
+    def visible_jobs():
         import af
         result = []
-        for native in af.Cmd().getJobList() or []:
+        native_jobs = af.Cmd().getJobList()
+        if native_jobs is None:
+            abort(503)
+        for native in native_jobs:
             match = re.fullmatch(r"Image ([0-9a-f]{32})",native.get("name",""))
             if not match:
                 continue
@@ -169,7 +176,25 @@ def create_app():
                 continue
             if g.user["role"] == "admin" or item["owner"] == g.user["name"]:
                 result.append(dict(item, state=native.get("state",""), id=native["id"]))
-        return jsonify(sorted(result,key=lambda j:j["id"],reverse=True))
+        return sorted(result,key=lambda j:j["id"],reverse=True)
+
+    @app.get("/api/queue")
+    def queue():
+        if g.user["role"] != "admin":
+            abort(403)
+        ready = []
+        for job in visible_jobs():
+            if "RUN" not in job["state"] and "RDY" not in job["state"]:
+                continue
+            pending = {}
+            for e in read_events(job["key"])[1]:
+                if e["state"] in ("queued","requeued"):
+                    pending[e["tile"]] = e["dispatch_sequence"]
+                elif e["state"] in ("dispatched","committed"):
+                    pending.pop(e["tile"],None)
+            ready.extend(dict(key=job["key"], filename=job["filename"], priority=job["priority"],
+                              tile=t, sequence=s) for t,s in pending.items())
+        return jsonify(sorted(ready,key=lambda e:(e["priority"]!="high",e["sequence"])))
 
     @app.post("/api/jobs")
     def upload():

@@ -72,9 +72,8 @@ def start():
     launch("afserver", "image-manager")
     until("server ready", lambda: request({"get":{"type":"pools"}}).get("pools"))
     # Limit the entire render (including across jobs) to one calculation.
-    action = {"type":"pools", "mask":"^/$", "user_name":"image-test","host_name":"localhost"}
-    request({"action":dict(action, params={"max_tasks_host":1,"capacity_host":1,"heartbeat_sec":1,"new_paused":False,"new_nimby":False})})
-    request({"action":dict(action, operation={"type":"farm","mode":"service_add","name":"image_tile"})})
+    from console_cluster import configure_pool
+    configure_pool(request)
     for n in range(4):
         launch("afrender", f"image-render-{n}")
     until("four registered renders", lambda: len(request({"get":{"type":"renders"}}).get("renders",[])) == 4)

@@ -56,3 +56,22 @@ af-image-fs read "/$JOB_KEY/result.png" > recovered.png
 ```
 
 输入按文件内容识别 PNG 或 JPEG，解码为原始存储方向的三通道 RGB8（舍弃透明度）。原文件和解码像素保存在镜像内的作业目录。afserver 收到最后一块时按坐标拼图，与最终 PNG 一起提交；下载命令直接导出该 PNG。集成测试使用 130×150 的非对称彩图、64×64 图块和独立的整图参考，重新打开实际导出的 PNG 逐像素比较。JPEG 的参考输入取自有损编码后的解码图。
+
+## D 模块：管理台
+
+Linux 构建需包含 afserver、afrender、af-image-fs 和 af-image-worker，并把它们放在 PATH 中。安装 python3-flask、python3-opencv。创建两个普通用户和一个管理员，密码通过终端交互输入。没有内置密码。
+
+```bash
+export IMAGE_LAB_ROOT="$PWD/course-runtime/demo"
+mkdir -p -m 700 "$IMAGE_LAB_ROOT"
+/usr/bin/python3 course/web.py account alice --role user
+/usr/bin/python3 course/web.py account bob --role user
+/usr/bin/python3 course/web.py account manager --role admin
+IMAGE_LAB_DEMO_DELAY_MS=5000 /usr/bin/python3 course/console_cluster.py
+```
+
+浏览器打开 http://127.0.0.1:8080。在普通窗口上传 PNG/JPEG，选择操作与优先级。在独立浏览器会话登录管理员，查看全部图像作业和按优先级、真实入队序号排列的就绪队列。打开作业，在进程时间线点“终止 PID”。选中对应图块后，执行历史显示派发、真实 PID、退出信号、重新入队、新尝试及正式提交。已提交块显示从 disk.img 读取的真实像素，虚线框表示发生过重试。下载返回镜像中的最终 PNG。性能实验使用默认延时 0。
+
+管理页使用 Afanasy Browser 的原生 TaskItem、状态渲染和样式，图片作业继续使用原有 afserver/afrender 协议。角色和密码哈希、过期及可撤销的会话保存在私有 web.sqlite 中；上传时由服务端把登录身份写入镜像中的作业描述。普通用户只能经服务端读取自己的作业、增量事件、图块和结果，管理员可查看全局并终止核验过的计算尝试。旧作业及 CLI 提交的无所有者作业仅对管理员可见。课程模式下原生控制端口仅绑定本机 IPv4 并拒绝浏览器 HTTP，浏览器统一使用认证入口；同机能运行原生客户端或读取运行目录的 OS 账号属于受信任运行环境。退出登录或重置密码会撤销对应会话。
+
+CI 在真实四执行端集群中启用 IMAGE_LAB_BROWSER_TEST=1，使用两个隔离 Chromium context 检查两个普通账号的作业隔离，再在其中一个会话改用管理员登录。测试点击终止按钮，核对页面上的旧、新 PID 与尝试号，并检查下载的 PNG 和已验证的参考输出完全一致。截图随 image-lab-evidence 测试产物保存。
