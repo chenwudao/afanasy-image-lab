@@ -81,13 +81,19 @@ def start():
 
 def run():
     os.environ["IMAGE_LAB_SCHEDULER"] = "priority"
-    start()
-    import af
     def done(job):
+        import af
         state = af.Cmd().getJobList(ids=[job]) or []
         if state and "ERR" in state[0].get("state",""):
             raise RuntimeError("job error: " + str(state))
         return state and "DON" in state[0].get("state","")
+    if os.environ.get("IMAGE_LAB_SCHEDULER_TEST") == "1":
+        from scheduling_benchmark import check_schedulers
+        check_schedulers(runtime, start, shutdown, until, done)
+        return
+
+    start()
+    import af
     job, single = submit(bytes([20,40,80]),1,1,"gray")
     until("single tile committed", lambda: done(job))
     reference = (77*20+150*40+29*80+128)//256
@@ -234,11 +240,6 @@ def run():
             hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for _, _, path in results}
             assert hashes == baseline, (capacity, hashes, baseline)
             print(f"PASS cache capacity {capacity}: four pixel references and four baseline PNG hashes")
-
-    if os.environ.get("IMAGE_LAB_SCHEDULER_TEST") == "1":
-        from scheduling_benchmark import check_schedulers
-        check_schedulers(runtime, start, shutdown, until, done)
-
 
 def shutdown():
     for proc in reversed(processes):
