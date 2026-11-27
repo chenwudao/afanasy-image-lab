@@ -1,0 +1,52 @@
+#include "inode_fs.h"
+#include <cstdlib>
+#include <iostream>
+#include <iterator>
+#include <stdexcept>
+
+using image_lab::Bytes;
+using image_lab::Disk;
+int main(int argc, char **argv) {
+    try {
+        if (argc < 2) throw std::runtime_error("expected init, prepare, read, list, mkdir, put or rm");
+        std::string op=argv[1];
+        if (op=="init" && argc==3) { Disk disk(true,true,std::stoul(argv[2])); return 0; }
+        if (op=="prepare" && argc==6) {
+            // One namespace checkpoint for all job inputs, including the uploaded bytes.
+            std::string dir=argv[2], manifest=argv[3], suffix=argv[5];
+            if (suffix!="png" && suffix!="jpg" && suffix!="-") throw std::runtime_error("invalid input format");
+            size_t rgbSize=std::stoull(argv[4]);
+            Bytes rgb(rgbSize);
+            if (!std::cin.read(reinterpret_cast<char*>(rgb.data()),rgbSize)) throw std::runtime_error("short RGB input");
+            Bytes original((std::istreambuf_iterator<char>(std::cin)),{});
+            Disk disk(true,true);
+            disk.mkdir(dir);
+            disk.put(dir+"/manifest",Bytes(manifest.begin(),manifest.end()));
+            disk.put(dir+"/source.rgb",rgb);
+            if (suffix!="-") disk.put(dir+"/original."+suffix,original);
+            disk.save(); return 0;
+        }
+        if (op=="free" && argc==2) { std::cout << Disk().freeBlocks() << '\n'; return 0; }
+        if (argc!=3) throw std::runtime_error("expected one absolute image path");
+        std::string path=argv[2];
+        if (op=="read" || op=="list") {
+            Disk disk;
+            if (op=="list") for (auto &name:disk.list(path)) std::cout << name << '\n';
+            else {
+                Bytes bytes=disk.read(path);
+                std::cout.write(reinterpret_cast<const char*>(bytes.data()),bytes.size());
+            }
+            return std::cout ? 0 : 1;
+        }
+        Disk disk(true);
+        if (op=="mkdir") disk.mkdir(path);
+        else if (op=="rm") disk.erase(path);
+        else if (op=="put") disk.put(path,Bytes(std::istreambuf_iterator<char>(std::cin),{}));
+        else throw std::runtime_error("unknown disk operation");
+        disk.save();
+        return 0;
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << '\n';
+        return 1;
+    }
+}

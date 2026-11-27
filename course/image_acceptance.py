@@ -2,6 +2,7 @@
 import cv2
 import numpy as np
 
+from image_store import names, read
 from image_job import export_png, submit_image
 
 
@@ -19,9 +20,9 @@ def check_images(runtime, until, done):
             jobs.append((job, directory, decoded, suffix, operation))
     for job, directory, decoded, suffix, operation in jobs:
         until(f"{suffix} {operation} completion", lambda: done(job), 160)
-        assert len(list(directory.glob("tile-*.rgb"))) == 9
-        assert (directory / "tile-8.rgb").stat().st_size == 2*22*3
-        assert (directory / f"original.{suffix}").read_bytes() == (runtime / f"source.{suffix}").read_bytes()
+        assert sum(n.startswith("tile-") and n.endswith(".rgb") for n in names(directory)) == 9
+        assert len(read(directory, "tile-8.rgb")) == 2*22*3
+        assert read(directory, f"original.{suffix}") == (runtime / f"source.{suffix}").read_bytes()
         # Reference traverses the complete decoded input, independently of tile geometry.
         if operation == "gray":
             b, g, r = decoded.astype(np.uint32).transpose(2, 0, 1)
@@ -35,3 +36,5 @@ def check_images(runtime, until, done):
         differences = np.count_nonzero(np.any(actual != expected, axis=2))
         print(f"{suffix} {operation}: 9 tiles, last 2x22, {differences}/{width*height} differing pixels")
         assert differences == 0
+    return [(job, directory, runtime / f"{suffix}-{operation}.png")
+            for job, directory, _, suffix, operation in jobs]

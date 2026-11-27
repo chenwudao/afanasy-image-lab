@@ -4,13 +4,13 @@
 
 ## 在 Linux 重现
 
-依赖 C++ 编译器、CMake、Python 3.9+ 与开发头文件、libzip-dev。进程终止接口使用 Linux pidfd。以下命令从仓库根目录执行。
+依赖 C++ 编译器、CMake、Python 3.9+ 与开发头文件、libzip-dev、libpng-dev、zlib1g-dev、python3-opencv。进程终止接口使用 Linux pidfd。以下命令从仓库根目录执行。
 
 ```bash
 export AF_GUI=NO AF_POSTGRESQL=NO AF_OSTYPE=linux
 build=$(mktemp -d)
 cmake -S afanasy/src/project.cmake -B "$build/a/b/c" -DBUILD_TESTING=OFF
-cmake --build "$build/a/b/c" --target afserver afrender af-image-worker -j4
+cmake --build "$build/a/b/c" --target afserver afrender af-image-worker af-image-fs -j4
 export PATH="$(dirname "$(find "$build" -type f -name afserver -executable -print -quit)"):$PATH"
 python3 -u course/integration.py
 ```
@@ -21,7 +21,7 @@ python3 -u course/integration.py
 
 - **提交与 C**：调用 submit(pixels, width, height, operation, priority, side)，返回原生作业 ID 和私有目录。pixels 为从左上逐行排列、无行填充的 RGB8，operation 可选 gray、invert，priority 可选 normal、high。job key 为服务端提交适配器生成的 32 位十六进制串。块号从 0 按行优先递增，descriptor() 返回输出矩形。Worker 首版支持 RGB8 灰度和反色算子，灰度结果复制到三个通道。C 后续接上图片编解码即可。
 - **派发与恢复**：同级按就绪序号调度，高优先级先领取，正在运行的块可以继续。重派使用原优先级和新的入队顺序。每次原生任务启动时，服务端把新的 starts_count 注入 IMAGE_ATTEMPT，并通过任务上报的辅助编号校验本次尝试；旧尝试的状态不能完成当前任务。Linux 执行端负责回收计算子进程。示例提交允许失败后三次重试。
-- **B 的存储接口**：[tile_store.h](../afanasy/src/image_lab/tile_store.h) 的 stage 接收本次尝试的完整 RGB8 缓冲，commit 由 afserver 在收到对应成功上报后调用。成功返回包含首次确认及已提交重放；错误抛出异常并保留任务错误记录。过期上报在调用 commit 之前过滤。联调适配器在单机共享的 IMAGE_LAB_ROOT 下使用临时文件、fsync、不可覆盖的硬链接和目录刷盘，正式块文件名为 tile-N.rgb。B 接入 inode 时应保持这个提交与重放约定。当前适配器使用宿主文件系统，最终整图拼接、inode 崩溃恢复和备份属于后续模块。
+- **B 的存储接口**：[tile_store.h](../afanasy/src/image_lab/tile_store.h) 的 stage 接收本次尝试的完整 RGB8 缓冲，commit 由 afserver 在收到对应成功上报后调用。成功返回包含首次确认及已提交重放；错误抛出异常并保留任务错误记录。过期上报在调用 commit 之前过滤。所有像素和作业数据通过自建 inode 镜像 disk.img 保存。最后一个图块提交时 afserver 同时拼图、生成无损 PNG 并提交同一元数据检查点。执行事件日志仍在宿主侧供管理台读取。
 - **D 的进程与事件接口**：[control.py](control.py) 提供 read_events(job_key, cursor)，返回下一字节游标和完整事件列表。时间是 Unix 毫秒，块号和尝试号关联同一次执行，服务端的 dispatch_sequence 表示实际派发次序。started 记录真实 PID，exit-N 或 signal-N 表示退出原因，killed/failed、requeued、committed、commit_failed 表示后续状态。调度序号仅在同一次服务器运行期间有效。画布只读取已提交结果。
 - **D 的终止接口**：已完成管理员身份和作业权限校验的后端调用 terminate_attempt(job_key, tile, attempt, pid)。该接口固定进程句柄并检查真实可执行文件、作业和尝试环境，防止 PID 复用或旧页面操作误杀。普通用户的事件与结果查询同样须由业务后端校验作业归属。服务端、执行端需在同机、同一可信系统账号下运行，共用私有 IMAGE_LAB_ROOT。公开用户登录及前端按钮由 D 对接。
 

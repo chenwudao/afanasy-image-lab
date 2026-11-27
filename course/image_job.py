@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from submit import submit
+from image_store import read
 
 
 def submit_image(path, operation, priority="normal", side=64):
@@ -32,26 +33,12 @@ def submit_image(path, operation, priority="normal", side=64):
 
 def export_png(directory, output):
     directory, output = Path(directory), Path(output)
-    width, height, side, _ = (directory / "manifest").read_text().split()
-    width, height, side = map(int, (width, height, side))
-    columns = (width + side - 1) // side
-    rows = (height + side - 1) // side
-    canvas = np.empty((height, width, 3), dtype=np.uint8)
-    for tile in range(rows * columns):
-        x, y = tile % columns * side, tile // columns * side
-        w, h = min(side, width - x), min(side, height - y)
-        data = (directory / f"tile-{tile}.rgb").read_bytes()
-        if len(data) != w * h * 3:
-            raise ValueError(f"incorrect byte count for tile {tile}")
-        canvas[y:y+h, x:x+w] = np.frombuffer(data, np.uint8).reshape(h, w, 3)
-    ok, encoded = cv2.imencode(".png", cv2.cvtColor(canvas, cv2.COLOR_RGB2BGR))
-    if not ok:
-        raise OSError("PNG encoding failed")
+    encoded = read(directory, "result.png")
     temp = None
     try:
         with tempfile.NamedTemporaryFile(dir=output.parent, delete=False) as stream:
             temp = stream.name
-            stream.write(encoded.tobytes())
+            stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp, output)

@@ -15,15 +15,16 @@ jobs:
       - name: Build native server, render and tile worker
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y python3-dev python3-opencv libzip-dev
+          sudo apt-get install -y python3-dev python3-opencv libzip-dev libpng-dev zlib1g-dev
           export AF_GUI=NO AF_POSTGRESQL=NO AF_OSTYPE=linux
           cmake -S afanasy/src/project.cmake -B "$RUNNER_TEMP/af/build/native" -DBUILD_TESTING=OFF
-          cmake --build "$RUNNER_TEMP/af/build/native" --target afserver afrender af-image-worker -j4
+          cmake --build "$RUNNER_TEMP/af/build/native" --target afserver afrender af-image-worker af-image-fs -j4
           echo "$(dirname "$(find "$RUNNER_TEMP" "$GITHUB_WORKSPACE" -type f -name afserver -executable | head -1)")" >> "$GITHUB_PATH"
           echo "$(dirname "$(find "$RUNNER_TEMP" "$GITHUB_WORKSPACE" -type f -name af-image-worker -executable | head -1)")" >> "$GITHUB_PATH"
+          echo "$(dirname "$(find "$RUNNER_TEMP" "$GITHUB_WORKSPACE" -type f -name af-image-fs -executable | head -1)")" >> "$GITHUB_PATH"
       - name: Verify the B commit contract
         run: |
-          g++ -std=c++17 -Wall -Wextra -Werror course/store_test.cpp afanasy/src/image_lab/tile_store.cpp -o "$RUNNER_TEMP/store-test"
+          g++ -std=c++17 -Wall -Wextra -Werror course/store_test.cpp afanasy/src/image_lab/tile_store.cpp afanasy/src/image_lab/inode_fs.cpp -lpng -lz -o "$RUNNER_TEMP/store-test"
           "$RUNNER_TEMP/store-test" "$(mktemp -d)"
       - name: Exercise Afanasy with four local renders
         run: /usr/bin/python3 -u course/integration.py

@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 
+from image_store import read, names, fs
 from submit import submit
 from control import read_events, terminate_attempt
 
@@ -34,7 +35,7 @@ def launch(binary, name):
     path = shutil.which(binary)
     if not path:
         raise RuntimeError("missing " + binary)
-    with (runtime / (name+".log")).open("w") as log:
+    with (runtime / (name+".log")).open("a") as log:
         process = subprocess.Popen([path], env=dict(os.environ, AF_HOSTNAME=name),
                                    stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     processes.append(process)
@@ -55,12 +56,13 @@ def start():
     config.write_text(json.dumps({"cgru_config": {"af_servername": "127.0.0.1",
                       "af_serverport": port, "af_store_folder": str(runtime / "server"),
                       "af_render_nice": 0}}))
-    (runtime/"home").mkdir()
+    (runtime/"home").mkdir(exist_ok=True)
     paths = [str(ROOT/"afanasy/python"), str(ROOT/"lib/python")]
     sys.path[:0] = paths
     os.environ.update(CGRU_LOCATION=str(ROOT), AF_ROOT=str(ROOT/"afanasy"),
                       HOME=str(runtime/"home"), CGRU_CUSTOM_CONFIG=str(config),
                       IMAGE_LAB_ROOT=str(runtime), PYTHONPATH=os.pathsep.join(paths))
+    fs("init", "2048")  # 8 MiB fixed-capacity integration image
     import afnetwork
     def request(data):
         ok, reply = afnetwork.sendServer(json.dumps(data))
@@ -87,7 +89,7 @@ def run():
     job, single = submit(bytes([20,40,80]),1,1,"gray")
     until("single tile committed", lambda: done(job))
     reference = (77*20+150*40+29*80+128)//256
-    assert (single/"tile-0.rgb").read_bytes() == bytes([reference])*3
+    assert read(single,"tile-0.rgb") == bytes([reference])*3
     print("PASS single tile", job, events(single))
     pixels = bytes(range(27))
     normal, low_dir = submit(pixels,9,1,"invert",side=1,delay_ms=12000)
@@ -112,8 +114,8 @@ def run():
     assert [(d,t) for d,t,a,s in sequence[4:6]] == [(hi_dir.name,0),(hi_dir.name,1)], sequence
     assert [t for d,t,a,s in sequence if d==low_dir.name and a==1] == list(range(9)), sequence
     assert any(r[1]==victim[1] and r[2]=="2" and r[3]=="started" and r[4]!=victim[4] for r in logs)
-    assert len(list(low_dir.glob("tile-*.rgb"))) == 9
-    assert b"".join((low_dir/f"tile-{t}.rgb").read_bytes() for t in range(9)) == bytes(255-p for p in pixels)
+    assert sum(n.startswith("tile-") and n.endswith(".rgb") for n in names(low_dir)) == 9
+    assert b"".join(read(low_dir,f"tile-{t}.rgb") for t in range(9)) == bytes(255-p for p in pixels)
     assert any(r[1:4] == [victim[1],"1","requeued"] for r in logs)
     assert any(r[1:5] == [victim[1],"1","signal-9",str(pid)] for r in logs)
     assert len([r for r in logs if r[3]=="committed"]) == 9
@@ -133,15 +135,37 @@ def run():
         raise AssertionError("stale admin request was accepted")
     terminate_attempt(admin_dir.name, 0, 1, admin_pid)
     until("admin recovery", lambda: done(admin_job))
-    assert (admin_dir/"tile-0.rgb").read_bytes() == bytes([254,253,252])
+    assert read(admin_dir,"tile-0.rgb") == bytes([254,253,252])
     print("PASS admin termination", events(admin_dir))
     from image_acceptance import check_images
-    check_images(runtime, until, done)
+    completed = check_images(runtime, until, done)
+    # Occupy data blocks while a real worker owns a tile that needs four blocks.
+    full_job, full_dir = submit(bytes(64*64*3),64,64,"invert",delay_ms=3500)
+    until("ENOSPC test worker started", lambda: any(e[3]=="started" for e in events(full_dir)))
+    fs("put","/filler",data=bytes((int(fs("free"))-1)*4092))
+    until("failed stage", lambda: any(e[3]=="failed" for e in events(full_dir)))
+    assert not {"tile-0.rgb","result.png"}.intersection(names(full_dir))
+    assert not any(e[3]=="committed" for e in events(full_dir))
+    assert "DON" not in af.Cmd().getJobList(ids=[full_job])[0]["state"]
+    fs("rm","/filler")
+    until("retry after freeing blocks", lambda: done(full_job))
+    assert read(full_dir,"tile-0.rgb")==bytes([255])*(64*64*3)
+    print("PASS ENOSPC: no formal tile, no completion, successful retry after freeing space")
+
+    import hashlib
+    from image_job import export_png
+    expected = {job: hashlib.sha256(path.read_bytes()).hexdigest() for job, _, path in completed}
+    shutdown()
+    start()
+    for job, directory, path in completed:
+        until("restored job visible", lambda: done(job))
+        assert set(p.name for p in directory.iterdir()) <= {"events.tsv"}
+        restored = export_png(directory, runtime/("reopened-"+path.name))
+        assert hashlib.sha256(restored.read_bytes()).hexdigest()==expected[job]
+    print("PASS graceful server restart: four matching PNG hashes exported from disk.img")
 
 
-try:
-    run()
-finally:
+def shutdown():
     for proc in reversed(processes):
         if proc.poll() is None:
             os.killpg(proc.pid,signal.SIGTERM)
@@ -151,5 +175,12 @@ finally:
         except subprocess.TimeoutExpired:
             os.killpg(proc.pid,signal.SIGKILL)
             proc.wait()
+    processes.clear()
+
+
+try:
+    run()
+finally:
+    shutdown()
     for path in runtime.glob("*.log"):
         print(path.name, path.read_text(errors="replace")[-3500:])

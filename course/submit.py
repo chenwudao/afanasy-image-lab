@@ -4,6 +4,7 @@ import math
 import os
 from pathlib import Path
 import uuid
+from image_store import fs
 
 
 def submit(pixels, width, height, operation, priority="normal", side=64, delay_ms=0, *, original=None):
@@ -21,10 +22,13 @@ def submit(pixels, width, height, operation, priority="normal", side=64, delay_m
     if original is not None and original[0] not in {"jpg", "png"}:
         raise ValueError("unsupported original format")
     directory.mkdir(mode=0o700)
-    if original is not None:
-        (directory / ("original." + original[0])).write_bytes(original[1])
-    (directory / "source.rgb").write_bytes(pixels)
-    (directory / "manifest").write_text(f"{width} {height} {side} {operation}\n")
+    suffix, encoded = original or ("-", b"")
+    try:
+        fs("prepare", "/" + key, f"{width} {height} {side} {operation}\n", len(pixels),
+           suffix, data=pixels + encoded)
+    except Exception:
+        directory.rmdir()
+        raise
     job = af.Job("Image " + key)
     job.setPriority(level)
     block = af.Block("tiles", "image_tile")

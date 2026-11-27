@@ -14,6 +14,7 @@ struct Tile {
 // Only explicit single-host course jobs use this adapter. B can replace its
 // internals with inode transactions without changing worker or scheduler IDs.
 std::string jobDirectory(const std::string &key);
+std::vector<unsigned char> source(const std::string &dir,const Tile &t);
 Tile descriptor(const std::string &dir, int tile);
 void stage(const std::string &dir, int tile, int attempt, const std::vector<unsigned char> &rgb);
 void commit(const std::string &dir, int tile, int attempt);

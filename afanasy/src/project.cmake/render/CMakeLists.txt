@@ -1,10 +1,10 @@
 file(GLOB_RECURSE src RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../../render/*.cpp")
 file(GLOB_RECURSE inc RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/../../render/*.h")
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	list(APPEND src ../../image_lab/tile_store.cpp)
-endif()
 add_executable(afrender ${src} ${inc})
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(afrender image_store)
+endif()
 
 if( NOT $ENV{AF_ADD_CFLAGS} STREQUAL "" )
    set_target_properties(afrender PROPERTIES COMPILE_FLAGS $ENV{AF_ADD_CFLAGS})
