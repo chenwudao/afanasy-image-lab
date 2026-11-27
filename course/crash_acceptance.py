@@ -52,7 +52,8 @@ def check_crashes(runtime, start, shutdown, launch, processes, events, until, do
             assert 4<=len(before)<9
         elif point=="before-confirm":
             assert 8 not in before and len(before)>=4
-            assert any(n.startswith("tile-8.attempt-") for n in files)
+            staged = [n for n in files if n.startswith("tile-8.attempt-")]
+            assert len(staged)==1 and len(read(directory,staged[0]))==2*22*3
         else:
             assert before==tiles
         saved = {tile: read(directory,f"tile-{tile}.rgb") for tile in before}
@@ -66,6 +67,7 @@ def check_crashes(runtime, start, shutdown, launch, processes, events, until, do
         assert all(attempt > max((a for t,a in dispatches if t==tile),default=0)
                    for tile,attempt in resumed)
         assert committed(directory)==tiles
+        assert not any(".attempt-" in name for name in names(directory))
         for tile,pixels in saved.items():
             assert read(directory,f"tile-{tile}.rgb")==pixels
         completion = [int(row[1]) for row in events(directory) if row[3]=="committed"]

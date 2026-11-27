@@ -21,7 +21,7 @@ python3 -u course/integration.py
 
 - **提交与 C**：调用 submit(pixels, width, height, operation, priority, side)，返回原生作业 ID 和私有目录。pixels 为从左上逐行排列、无行填充的 RGB8，operation 可选 gray、invert，priority 可选 normal、high。job key 为服务端提交适配器生成的 32 位十六进制串。块号从 0 按行优先递增，descriptor() 返回输出矩形。Worker 首版支持 RGB8 灰度和反色算子，灰度结果复制到三个通道。C 后续接上图片编解码即可。
 - **派发与恢复**：同级按就绪序号调度，高优先级先领取，正在运行的块可以继续。重派使用原优先级和新的入队顺序。每次原生任务启动时，服务端把新的 starts_count 注入 IMAGE_ATTEMPT，并通过任务上报的辅助编号校验本次尝试；旧尝试的状态不能完成当前任务。Linux 执行端负责回收计算子进程。示例提交允许失败后三次重试。
-- **B 的存储接口**：[tile_store.h](../afanasy/src/image_lab/tile_store.h) 的 stage 接收本次尝试的完整 RGB8 缓冲，commit 由 afserver 在收到对应成功上报后调用。成功返回包含首次确认及已提交重放；错误抛出异常并保留任务错误记录。过期上报在调用 commit 之前过滤。所有像素和作业数据通过自建 inode 镜像 disk.img 保存。最后一个图块提交时 afserver 同时拼图、生成无损 PNG 并提交同一元数据检查点。执行事件日志仍在宿主侧供管理台读取。
+- **B 的存储接口**：[tile_store.h](../afanasy/src/image_lab/tile_store.h) 的 stage 接收本次尝试的完整 RGB8 缓冲，commit 由 afserver 在收到对应成功上报后调用。成功返回包含首次确认及已提交重放；错误抛出异常并保留任务错误记录。过期上报在调用 commit 之前过滤。所有像素和作业数据通过自建 inode 镜像 disk.img 保存。afserver 先持久化每个正式图块。最后一个图块提交后生成无损 PNG，再发布作业完成状态。执行事件日志仍在宿主侧供管理台读取。
 - **D 的进程与事件接口**：[control.py](control.py) 提供 read_events(job_key, cursor)，返回下一字节游标和完整事件列表。时间是 Unix 毫秒，块号和尝试号关联同一次执行，服务端的 dispatch_sequence 表示实际派发次序。started 记录真实 PID，exit-N 或 signal-N 表示退出原因，killed/failed、requeued、committed、commit_failed 表示后续状态。调度序号仅在同一次服务器运行期间有效。画布只读取已提交结果。
 - **D 的终止接口**：已完成管理员身份和作业权限校验的后端调用 terminate_attempt(job_key, tile, attempt, pid)。该接口固定进程句柄并检查真实可执行文件、作业和尝试环境，防止 PID 复用或旧页面操作误杀。普通用户的事件与结果查询同样须由业务后端校验作业归属。服务端、执行端需在同机、同一可信系统账号下运行，共用私有 IMAGE_LAB_ROOT。公开用户登录及前端按钮由 D 对接。
 
@@ -44,7 +44,7 @@ af-image-fs list "/$JOB_KEY"
 af-image-fs read "/$JOB_KEY/result.png" > recovered.png
 ```
 
-镜像内每个作业保存 manifest（尺寸、块边长、操作和优先级）、source.rgb、上传的 original.png 或 original.jpg、tile-N.rgb 及 result.png。stage 的尝试文件与正式块分名，commit 在同一事务中重命名并确认；最后的 PNG 若写入失败，最后一块也不会成为正式结果。旧宿主目录中已完成的作业可用 `af-image-fs import-completed "$JOB_KEY"` 导入，工具校验所有块后一次提交，保留原目录。单独持有正常关闭后的镜像也可以列出和导出已完成作业。
+镜像内每个作业保存 manifest（尺寸、块边长、操作和优先级）、source.rgb、上传的 original.png 或 original.jpg、tile-N.rgb 及 result.png。stage 的尝试文件与正式块分名，commit 在同一事务中重命名并确认；最后的 PNG 若因空间不足而写入失败，最后一块回退到暂存状态。进程若在最后一块提交后、拼图前崩溃，重启后直接从正式块拼图。旧宿主目录中已完成的作业可用 `af-image-fs import-completed "$JOB_KEY"` 导入，工具校验所有块后一次提交，保留原目录。单独持有正常关闭后的镜像也可以列出和导出已完成作业。
 
 ## C 模块：真实图片往返
 
@@ -55,7 +55,7 @@ af-image-fs read "/$JOB_KEY/result.png" > recovered.png
 /usr/bin/python3 course/image_job.py photo.png inverted.png --operation invert
 ```
 
-输入按文件内容识别 PNG 或 JPEG，解码为原始存储方向的三通道 RGB8（舍弃透明度）。原文件和解码像素保存在镜像内的作业目录。afserver 收到最后一块时按坐标拼图，与最终 PNG 一起提交；下载命令直接导出该 PNG。集成测试使用 130×150 的非对称彩图、64×64 图块和独立的整图参考，重新打开实际导出的 PNG 逐像素比较。JPEG 的参考输入取自有损编码后的解码图。
+输入按文件内容识别 PNG 或 JPEG，解码为原始存储方向的三通道 RGB8（舍弃透明度）。原文件和解码像素保存在镜像内的作业目录。afserver 提交最后一块后按坐标拼图，把完整 PNG 写入镜像再发布作业完成。下载命令直接导出该 PNG。集成测试使用 130×150 的非对称彩图、64×64 图块和独立的整图参考，重新打开实际导出的 PNG 逐像素比较。JPEG 的参考输入取自有损编码后的解码图。
 
 ## D 模块：管理台
 
@@ -106,3 +106,11 @@ sha256sum restored.png
 备份持有镜像共享锁直到复制发布。已开始的写事务先结束，计算进程和读事务可继续，新的镜像写入等待备份结束。备份和恢复都检查超级块与元数据检查点，将完整副本刷盘后发布到目标路径。目标已存在时操作失败，恢复默认写入调用者指定目录的 disk.img。镜像包含备份时点的作业目录、图块和已提交的最终 PNG。运行中的作业保留当时已提交的图块，调度状态、宿主侧事件日志和 Web 账号由各自的存储管理。
 
 集成测试在一个六块作业的最后两块开始计算时备份。恢复副本应包含该作业的前四块及其描述，活跃镜像随后完成全部六块。四个先前完成的作业逐文件比对恢复副本，并校验最终 PNG 的 SHA-256。
+
+## 服务器崩溃续跑
+
+重启 afserver 时沿用同一运行目录和磁盘镜像。服务端读取已有 Afanasy 作业和镜像中的正式图块，将正式块恢复为已完成，将缺块重新入队。尝试编号在派发前先写入镜像，旧 Worker 的回报不能代替重启后的尝试。新尝试开始时回收同块的旧暂存文件。
+
+图块发布与最终 PNG 发布分别使用镜像检查点。重启若发现图块已经齐全而 PNG 缺失，会直接拼接，不再派发任何图块。最终 PNG 可读后才发布作业完成。正常运行时若拼图因镜像满而失败，最后一块回退至暂存状态。续跑依赖已有 Afanasy 作业记录及其磁盘镜像。
+
+运行 Linux 集成测试并加上 IMAGE_LAB_CRASH_TEST=1，可在计算中、完整数据暂存后且确认前、最后一块提交后且拼图前对 afserver 发送 SIGKILL。验收记录三次恢复的实际重算块、Afanasy 的完成计数和整图逐像素比较。测试保留原执行端，让重连和迟到回报经过真实任务通道。
