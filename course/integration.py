@@ -168,6 +168,7 @@ def run():
     print("PASS completed legacy job migration")
     expected = {job: hashlib.sha256(path.read_bytes()).hexdigest() for job, _, path in completed}
     active_job, active_dir = submit(bytes(range(18)), 6, 1, "invert", side=1, delay_ms=8000)
+    until("four commits", lambda: all(f"tile-{i}.rgb" in names(active_dir) for i in range(4)))
     until("second batch running", lambda: any(e[3]=="started" and int(e[1])>=4 for e in events(active_dir)))
     assert not done(active_job)
     backup = runtime/"online-backup.img"
@@ -195,8 +196,8 @@ def run():
             assert restored_fs("read",f"/{directory.name}/{name}") == read(directory,name)
         result = restored_fs("read",f"/{directory.name}/result.png")
         assert hashlib.sha256(result).hexdigest()==expected[job]
-    assert not subprocess.run(["af-image-fs","restore",str(backup),str(isolated)],
-                              capture_output=True).returncode == 0
+    duplicate = subprocess.run(["af-image-fs","restore",str(backup),str(isolated)], capture_output=True)
+    assert duplicate.returncode != 0
     until("live job completed after online backup", lambda: done(active_job))
     assert "result.png" in names(active_dir)
     assert "result.png" not in restored_fs("list","/"+active_dir.name).decode().splitlines()
