@@ -4,7 +4,7 @@
 
 ## 当前状态与上游
 
-A 模块已接入原生 afserver/afrender，提供图块派发、真实计算 PID 跟踪、尝试编号校验、故障重派与存储确认接口。运行命令、B/C/D 接口及单机四进程验收见 [A 模块联调说明](course/README.md)。B 模块将原图、作业描述、完成块和最终 PNG 存入自建 inode 镜像，C 模块已接通 PNG/JPEG 输入及灰度、反色导出。D 模块已接入双角色登录、作业归属检查、原生任务状态行、就绪队列、图块实像、PID 时间线与单块重试记录。单机启动和双浏览器验收见[管理台说明](course/README.md#d-模块管理台)。LRU 数据块缓存已接入镜像读写路径，容量对照实验见[联调说明](course/README.md#lru-块缓存实验)。上游基线为 [CGRU/cgru 的 a51c6e3](https://github.com/CGRU/cgru/tree/a51c6e393567ec61e996810c43c72fa87bfba0bf)。原版使用说明见 [上游 README](https://github.com/CGRU/cgru/blob/a51c6e393567ec61e996810c43c72fa87bfba0bf/README.md)，版权与许可见 [LICENSE.txt](LICENSE.txt) 及各组件内的许可文件。
+A 模块已接入原生 afserver/afrender，提供图块派发、真实计算 PID 跟踪、尝试编号校验、故障重派与存储确认接口。运行命令、B/C/D 接口及单机四进程验收见 [A 模块联调说明](course/README.md)。B 模块将原图、作业描述、完成块和最终 PNG 存入自建 inode 镜像，C 模块已接通 PNG/JPEG 输入及灰度、反色导出。D 模块已接入双角色登录、作业归属检查、原生任务状态行、就绪队列、图块实像、PID 时间线与单块重试记录。单机启动和双浏览器验收见[管理台说明](course/README.md#d-模块管理台)。LRU 数据块缓存和整盘备份恢复已接入，见[容量对照实验](course/README.md#lru-块缓存实验)和[整盘备份与恢复](course/README.md#整盘备份与恢复)。上游基线为 [CGRU/cgru 的 a51c6e3](https://github.com/CGRU/cgru/tree/a51c6e393567ec61e996810c43c72fa87bfba0bf)。原版使用说明见 [上游 README](https://github.com/CGRU/cgru/blob/a51c6e393567ec61e996810c43c72fa87bfba0bf/README.md)，版权与许可见 [LICENSE.txt](LICENSE.txt) 及各组件内的许可文件。
 
 ## 运行结构与用户角色
 
@@ -37,7 +37,7 @@ A 模块已接入原生 afserver/afrender，提供图块派发、真实计算 PI
 | 功能 | 设计与验收证据 |
 |---|---|
 | LRU 块缓存 | 容量可调，首版写穿。同一访问序列从冷缓存开始，比较命中率及实际磁盘读取次数。 |
-| 整盘备份恢复 | 暂缓新提交，等待在途写入结束并刷盘后复制一致镜像。在独立副本中导出目录与图像并核对哈希。 |
+| 整盘备份恢复 | 用镜像共享锁等待在途写事务完成并固定检查点，复制期间计算继续，新的镜像写入等待。将备份恢复到独立目录后核对作业目录和 PNG 哈希。 |
 | 服务器崩溃续跑 | 持久化任务清单和可校验的提交记录，保障 inode、位图及数据更新的一致性。在计算中、数据已写未确认、已确认未拼图三个时点强制退出，重启后核对重算块号。 |
 | 调度策略对比 | 比较全局 FIFO 和高优先级优先策略。固定输入、块大小、Worker 数、到达顺序，关闭演示延时，重复测量高优先级首次等待时间和普通作业完成时间。 |
 

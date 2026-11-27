@@ -34,6 +34,8 @@ public:
     void erase(const std::string &path);
     void rename(const std::string &from, const std::string &to);
     void save();
+    static void backup(const std::string &destination);
+    static void restore(const std::string &backup, const std::string &destinationDirectory);
 private:
     struct Impl;
     Impl *p;

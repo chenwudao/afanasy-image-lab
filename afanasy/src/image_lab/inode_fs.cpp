@@ -77,16 +77,19 @@ struct Disk::Impl {
     size_t metadataSize() const { return sizeof(Inode)*nodes.size() + bitmap.size(); }
     void sync() { if (fdatasync(fd.value)) ioError("disk.img sync"); }
 
-    Impl(bool write, bool create, uint32_t blocks): writer(write) {
+    static std::string imagePath() {
+        const char *root = std::getenv("IMAGE_LAB_ROOT");
+        require(root && *root == '/', "set absolute IMAGE_LAB_ROOT");
+        return std::string(root)+"/disk.img";
+    }
+
+    Impl(bool write, bool create, uint32_t blocks, const std::string &file = imagePath()): writer(write) {
         const char *setting = std::getenv("IMAGE_LAB_CACHE_BLOCKS");
         std::string value = setting ? setting : "64";
         require(!value.empty() && value.find_first_not_of("0123456789") == std::string::npos,
                 "IMAGE_LAB_CACHE_BLOCKS must be a non-negative integer");
         stats.capacity = std::stoull(value);
         require(stats.capacity <= 262144, "IMAGE_LAB_CACHE_BLOCKS exceeds maximum disk size");
-        const char *root = std::getenv("IMAGE_LAB_ROOT");
-        require(root && *root == '/', "set absolute IMAGE_LAB_ROOT");
-        std::string file = std::string(root)+"/disk.img";
         fd.value = open(file.c_str(), (write ? O_RDWR : O_RDONLY) | O_CLOEXEC | (create ? O_CREAT : 0), 0600);
         if (fd.value < 0) ioError("open disk.img");
         while (flock(fd.value, write ? LOCK_EX : LOCK_SH)) if (errno != EINTR) ioError("flock");
@@ -120,6 +123,41 @@ struct Disk::Impl {
         }
         reserved = bitmap;
         hint = dataStart();
+    }
+
+    void copyTo(const std::string &destination) const {
+        require(!destination.empty() && destination.back() != '/', "expected destination file");
+        auto slash = destination.rfind('/');
+        const auto parent = slash == std::string::npos ? "." : destination.substr(0, slash + 1);
+        Fd directory;
+        directory.value = open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (directory.value < 0) ioError("open destination directory");
+
+        // Publish only after the whole file is synced. link() refuses to replace
+        // any existing path, including the live image and previous backups.
+        std::string pattern = parent + "/.image-copy-XXXXXX";
+        std::vector<char> temporary(pattern.begin(), pattern.end());
+        temporary.push_back(0);
+        Fd output;
+        output.value = mkstemp(temporary.data());
+        if (output.value < 0) ioError("create temporary image");
+        try {
+            Bytes buffer(1024 * 1024);
+            const off_t length = off_t(s.blocks) * blockSize;
+            for (off_t offset = 0; offset < length;) {
+                const size_t count = std::min<off_t>(buffer.size(), length - offset);
+                transfer(fd.value, false, buffer.data(), count, offset);
+                transfer(output.value, true, buffer.data(), count, offset);
+                offset += count;
+            }
+            if (fdatasync(output.value)) ioError("sync image copy");
+            if (link(temporary.data(), destination.c_str())) ioError("publish image copy");
+        } catch (...) {
+            unlink(temporary.data());
+            throw;
+        }
+        if (unlink(temporary.data())) ioError("remove temporary image link");
+        if (fsync(directory.value)) ioError("sync image directory");
     }
 
     bool load(int slot, const Header &h) {
@@ -329,4 +367,16 @@ void Disk::rename(const std::string &from,const std::string &to) {
     std::memcpy(p->nodes[i].name,parts.second.data(),parts.second.size());
 }
 void Disk::save() { p->publish(); }
+
+void Disk::backup(const std::string &destination) {
+    // A shared flock pins the checkpoint and all data blocks for the full copy.
+    Disk source;
+    source.p->copyTo(destination);
+}
+
+void Disk::restore(const std::string &backup, const std::string &destinationDirectory) {
+    require(!destinationDirectory.empty(), "expected destination directory");
+    Impl source(false, false, 0, backup);
+    source.copyTo(destinationDirectory + "/disk.img");
+}
 }

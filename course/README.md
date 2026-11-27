@@ -88,3 +88,21 @@ IMAGE_LAB_CACHE_BLOCKS 指定每个打开的 Disk 句柄可缓存多少个 4096 
 python3 course/cache_benchmark.py --output course-runtime/lru-results.json
 IMAGE_LAB_CACHE_BLOCKS=64 IMAGE_LAB_CACHE_TEST=1 /usr/bin/python3 course/integration.py
 ```
+
+## 整盘备份与恢复
+
+在已构建的 Linux 环境设置 IMAGE_LAB_ROOT 指向运行目录，再执行：
+
+```bash
+af-image-fs backup ./online-backup.img
+mkdir ./restored
+af-image-fs restore ./online-backup.img ./restored
+IMAGE_LAB_ROOT="$PWD/restored" af-image-fs list /
+IMAGE_LAB_ROOT="$PWD/restored" af-image-fs list "/$JOB_KEY"
+IMAGE_LAB_ROOT="$PWD/restored" af-image-fs read "/$JOB_KEY/result.png" > restored.png
+sha256sum restored.png
+```
+
+备份持有镜像共享锁直到复制发布。已开始的写事务先结束，计算进程和读事务可继续，新的镜像写入等待备份结束。备份和恢复都检查超级块与元数据检查点，将完整副本刷盘后发布到目标路径。目标已存在时操作失败，恢复默认写入调用者指定目录的 disk.img。镜像包含备份时点的作业目录、图块和已提交的最终 PNG。运行中的作业保留当时已提交的图块，调度状态、宿主侧事件日志和 Web 账号由各自的存储管理。
+
+集成测试在一个六块作业的最后两块开始计算时备份。恢复副本应包含该作业的前四块及其描述，活跃镜像随后完成全部六块。四个先前完成的作业逐文件比对恢复副本，并校验最终 PNG 的 SHA-256。

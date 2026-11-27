@@ -10,8 +10,10 @@ using image_lab::Bytes;
 using image_lab::Disk;
 int main(int argc, char **argv) {
     try {
-        if (argc < 2) throw std::runtime_error("expected init, prepare, read, list, mkdir, put or rm");
+        if (argc < 2) throw std::runtime_error("expected init, prepare, read, list, mkdir, put, rm, backup or restore");
         std::string op=argv[1];
+        if (op=="backup" && argc==3) { Disk::backup(argv[2]); return 0; }
+        if (op=="restore" && argc==4) { Disk::restore(argv[2],argv[3]); return 0; }
         if (op=="import-completed" && argc==3) { image_lab::migrateCompleted(argv[2]); return 0; }
         if (op=="init" && argc==3) { Disk disk(true,true,std::stoul(argv[2])); return 0; }
         if (op=="prepare" && argc==6) {

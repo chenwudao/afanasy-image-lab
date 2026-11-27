@@ -167,16 +167,42 @@ def run():
     assert cv2.imread(str(recovered))[:,:,::-1].tobytes() == bytes(255-x for x in range(9))
     print("PASS completed legacy job migration")
     expected = {job: hashlib.sha256(path.read_bytes()).hexdigest() for job, _, path in completed}
-    # Keep only the disk image for a standalone export as well.
-    import shutil
+    active_job, active_dir = submit(bytes(range(18)), 6, 1, "invert", side=1, delay_ms=8000)
+    until("second batch running", lambda: any(e[3]=="started" and int(e[1])>=4 for e in events(active_dir)))
+    assert not done(active_job)
+    backup = runtime/"online-backup.img"
+    fs("backup", backup)
+    assert not done(active_job)
     isolated = runtime/"image-only"
     isolated.mkdir()
-    shutdown()
-    shutil.copyfile(runtime/"disk.img",isolated/"disk.img")
+    fs("restore", backup, isolated)
+    restored_env = dict(os.environ, IMAGE_LAB_ROOT=str(isolated))
+
+    def restored_fs(*args):
+        return subprocess.check_output(["af-image-fs", *args], env=restored_env)
+
+    restored_dirs = set(restored_fs("list","/").decode().splitlines())
+    assert active_dir.name in restored_dirs
+    active_files = set(restored_fs("list","/"+active_dir.name).decode().splitlines())
+    assert {"manifest","source.rgb",*(f"tile-{i}.rgb" for i in range(4))} <= active_files
+    assert not {"tile-4.rgb","tile-5.rgb","result.png"} & active_files
     for job, directory, _ in completed:
-        result = subprocess.check_output(["af-image-fs","read",f"/{directory.name}/result.png"],
-                                         env=dict(os.environ, IMAGE_LAB_ROOT=str(isolated)))
+        assert directory.name in restored_dirs
+        files = set(restored_fs("list","/"+directory.name).decode().splitlines())
+        assert {"manifest","source.rgb","result.png",*(f"tile-{i}.rgb" for i in range(9))} <= files
+        assert {"original.png","original.jpg"} & files
+        for name in files:
+            assert restored_fs("read",f"/{directory.name}/{name}") == read(directory,name)
+        result = restored_fs("read",f"/{directory.name}/result.png")
         assert hashlib.sha256(result).hexdigest()==expected[job]
+    assert not subprocess.run(["af-image-fs","restore",str(backup),str(isolated)],
+                              capture_output=True).returncode == 0
+    until("live job completed after online backup", lambda: done(active_job))
+    assert "result.png" in names(active_dir)
+    assert "result.png" not in restored_fs("list","/"+active_dir.name).decode().splitlines()
+    print("PASS online backup: running job checkpoint 4/6, four restored directories and PNG SHA-256:",
+          expected)
+    shutdown()
     start()
     for job, directory, path in completed:
         until("restored job visible", lambda: done(job))
