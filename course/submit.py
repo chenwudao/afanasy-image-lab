@@ -1,13 +1,14 @@
 """Afanasy submission adapter for local RGB8 images. Import submit() from the UI."""
 import argparse
 import math
+import json
 import os
 from pathlib import Path
 import uuid
 from image_store import fs
 
 
-def submit(pixels, width, height, operation, priority="normal", side=64, delay_ms=0, *, original=None):
+def submit(pixels, width, height, operation, priority="normal", side=64, delay_ms=0, *, original=None, owner=None, filename=None):
     import af
     if not (0 < width <= 65535 and 0 < height <= 65535 and 0 < side <= 1024):
         raise ValueError("invalid RGB8 dimensions")
@@ -24,7 +25,10 @@ def submit(pixels, width, height, operation, priority="normal", side=64, delay_m
     directory.mkdir(mode=0o700)
     suffix, encoded = original or ("-", b"")
     try:
-        fs("prepare", "/" + key, f"{width} {height} {side} {operation} {priority}\n", len(pixels),
+        manifest = f"{width} {height} {side} {operation} {priority}\n"
+        if owner is not None:
+            manifest += json.dumps({"owner": owner, "filename": filename}, ensure_ascii=True)
+        fs("prepare", "/" + key, manifest, len(pixels),
            suffix, data=pixels + encoded)
     except Exception:
         directory.rmdir()

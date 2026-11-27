@@ -185,6 +185,9 @@ def run():
         restored = export_png(directory, runtime/("reopened-"+path.name))
         assert hashlib.sha256(restored.read_bytes()).hexdigest()==expected[job]
     print("PASS graceful server restart: four matching PNG hashes exported from disk.img")
+    if os.environ.get("IMAGE_LAB_BROWSER_TEST") == "1":
+        from web_acceptance import check_console
+        check_console(runtime, until)
 
 
 def shutdown():

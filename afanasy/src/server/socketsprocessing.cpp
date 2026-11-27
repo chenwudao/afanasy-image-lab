@@ -185,6 +185,16 @@ bool SocketItem::processMsg( ThreadArgs * i_args)
 
 	m_profiler->processingStarted();
 
+	if (std::getenv("IMAGE_LAB_ROOT") &&
+		(m_msg_req->type() == af::Msg::THTTPGET || m_msg_req->type() == af::Msg::THTTP))
+	{
+		const std::string response = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+		m_msg_ans = new af::Msg();
+		m_msg_ans->setData(response.size(), response.c_str(), af::Msg::THTTPGET);
+		m_profiler->processingFinished();
+		return true;
+	}
+
 	if( m_msg_req->type() == af::Msg::THTTPGET )
 	{
 		m_msg_ans = HttpGet::process(m_msg_req);

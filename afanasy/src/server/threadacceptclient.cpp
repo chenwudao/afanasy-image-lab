@@ -94,7 +94,7 @@ void threadAcceptPort(void * i_arg, int i_port)
 	}
 	freeaddrinfo( res);
 
-	if( af::Environment::isIPv6Disabled())
+	if( af::Environment::isIPv6Disabled() || std::getenv("IMAGE_LAB_ROOT"))
 	{
 		printf("IPv6 is disabled by config.\n");
 		protocol = AF_INET;
@@ -120,7 +120,7 @@ void threadAcceptPort(void * i_arg, int i_port)
 	struct sockaddr_in server_sockaddr_in4;
 	memset( &server_sockaddr_in4, 0, sizeof(server_sockaddr_in4));
 	server_sockaddr_in4.sin_port = htons(i_port);
-	server_sockaddr_in4.sin_addr.s_addr = INADDR_ANY;
+	server_sockaddr_in4.sin_addr.s_addr = std::getenv("IMAGE_LAB_ROOT") ? htonl(INADDR_LOOPBACK) : INADDR_ANY;
 	server_sockaddr_in4.sin_family = AF_INET;
 
 	struct sockaddr_in6 server_sockaddr_in6;

@@ -2,7 +2,7 @@ name: Image Lab Linux integration
 on:
   push:
     branches: [main, 'verify/image-lab-*']
-    paths: ['afanasy/src/**', 'course/**', 'afanasy/python/services/image_tile.py', '.github/workflows/image-lab.yml']
+    paths: ['afanasy/src/**', 'course/**', 'afanasy/browser/**', 'afanasy/python/services/image_tile.py', '.github/workflows/image-lab.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,7 +15,7 @@ jobs:
       - name: Build native server, render and tile worker
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y python3-dev python3-opencv libzip-dev libpng-dev zlib1g-dev
+          sudo apt-get install -y python3-dev python3-opencv python3-flask libzip-dev libpng-dev zlib1g-dev
           export AF_GUI=NO AF_POSTGRESQL=NO AF_OSTYPE=linux
           cmake -S afanasy/src/project.cmake -B "$RUNNER_TEMP/af/build/native" -DBUILD_TESTING=OFF
           cmake --build "$RUNNER_TEMP/af/build/native" --target afserver afrender af-image-worker af-image-fs -j4
@@ -26,7 +26,14 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror course/store_test.cpp afanasy/src/image_lab/tile_store.cpp afanasy/src/image_lab/inode_fs.cpp -lpng -lz -o "$RUNNER_TEMP/store-test"
           "$RUNNER_TEMP/store-test" "$(mktemp -d)"
-      - name: Exercise Afanasy with four local renders
+      - name: Install browser test driver
+        run: |
+          npm install --prefix "$RUNNER_TEMP/image-browser" playwright@1.56.1
+          echo "NODE_PATH=$RUNNER_TEMP/image-browser/node_modules" >> "$GITHUB_ENV"
+          which google-chrome
+      - name: Exercise Afanasy with four local renders and two browser sessions
+        env:
+          IMAGE_LAB_BROWSER_TEST: "1"
         run: /usr/bin/python3 -u course/integration.py
       - uses: actions/upload-artifact@v4
         if: always()

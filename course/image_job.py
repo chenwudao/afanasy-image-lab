@@ -13,7 +13,10 @@ from image_store import read, fs
 
 
 def submit_image(path, operation, priority="normal", side=64):
-    encoded = Path(path).read_bytes()
+    return submit_encoded(Path(path).read_bytes(), operation, priority, side)
+
+
+def submit_encoded(encoded, operation, priority="normal", side=64, *, owner=None, filename=None, delay_ms=0):
     if encoded.startswith(b"\x89PNG\r\n\x1a\n"):
         suffix = "png"
     elif encoded.startswith(b"\xff\xd8\xff"):
@@ -28,7 +31,7 @@ def submit_image(path, operation, priority="normal", side=64):
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     height, width = rgb.shape[:2]
     return submit(rgb.tobytes(), width, height, operation, priority, side,
-                  original=(suffix, encoded))
+                  original=(suffix, encoded), owner=owner, filename=filename, delay_ms=delay_ms)
 
 
 def export_png(directory, output):
