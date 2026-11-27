@@ -7,6 +7,8 @@
 #include <cstring>
 #include <fcntl.h>
 #include <limits>
+#include <list>
+#include <unordered_map>
 #include <memory>
 #include <stdexcept>
 #include <system_error>
@@ -31,9 +33,10 @@ uint32_t ceiling(uint64_t n, uint32_t d) { return uint32_t((n + d - 1) / d); }
 void ioError(const char *what) { throw std::system_error(errno, std::generic_category(), what); }
 void require(bool ok, const char *msg) { if (!ok) throw std::runtime_error(msg); }
 
-void transfer(int fd, bool writing, void *data, size_t len, off_t offset) {
+void transfer(int fd, bool writing, void *data, size_t len, off_t offset, uint64_t *preads = nullptr) {
     auto buf = static_cast<unsigned char *>(data);
     while (len) {
+        if (preads) ++*preads;
         ssize_t n = writing ? pwrite(fd, buf, len, offset) : pread(fd, buf, len, offset);
         if (n < 0 && errno == EINTR) continue;
         if (n < 0) ioError("disk.img I/O");
@@ -53,6 +56,12 @@ struct Fd {
 }
 
 struct Disk::Impl {
+    using Page = std::array<unsigned char, blockSize>;
+    using Entries = std::list<std::pair<uint32_t, Page>>;
+    Entries recent; // MRU at the front. All entries belong to this locked image.
+    std::unordered_map<uint32_t, Entries::iterator> byBlock;
+    Page scratch;
+    CacheStats stats;
     Fd fd;
     Super s{};
     std::vector<Inode> nodes;
@@ -69,6 +78,12 @@ struct Disk::Impl {
     void sync() { if (fdatasync(fd.value)) ioError("disk.img sync"); }
 
     Impl(bool write, bool create, uint32_t blocks): writer(write) {
+        const char *setting = std::getenv("IMAGE_LAB_CACHE_BLOCKS");
+        std::string value = setting ? setting : "64";
+        require(!value.empty() && value.find_first_not_of("0123456789") == std::string::npos,
+                "IMAGE_LAB_CACHE_BLOCKS must be a non-negative integer");
+        stats.capacity = std::stoull(value);
+        require(stats.capacity <= 262144, "IMAGE_LAB_CACHE_BLOCKS exceeds maximum disk size");
         const char *root = std::getenv("IMAGE_LAB_ROOT");
         require(root && *root == '/', "set absolute IMAGE_LAB_ROOT");
         std::string file = std::string(root)+"/disk.img";
@@ -85,7 +100,7 @@ struct Disk::Impl {
             if (ftruncate(fd.value,off_t(blocks)*blockSize)) ioError("size disk.img");
             transfer(fd.value,true,&s,sizeof(s),0);
         } else {
-            transfer(fd.value,false,&s,sizeof(s),0);
+            transfer(fd.value,false,&s,sizeof(s),0,&stats.metadataPreads);
             require(s.magic==magic && s.version==1 && s.blocks>=16 && s.blocks<=262144 &&
                     st.st_size==off_t(s.blocks)*blockSize && s.inodes==std::max(32u,s.blocks/4) &&
                     s.bankBlocks==ceiling(sizeof(Header)+sizeof(Inode)*s.inodes+ceiling(s.blocks,8),blockSize),
@@ -99,7 +114,7 @@ struct Disk::Impl {
             publish();
         } else {
             Header headers[2]{};
-            for (int i=0;i<2;++i) transfer(fd.value,false,&headers[i],sizeof(Header),bank(i));
+            for (int i=0;i<2;++i) transfer(fd.value,false,&headers[i],sizeof(Header),bank(i),&stats.metadataPreads);
             int first = headers[1].generation > headers[0].generation ? 1 : 0;
             require(load(first,headers[first]) || load(1-first,headers[1-first]), "no valid inode checkpoint");
         }
@@ -110,7 +125,7 @@ struct Disk::Impl {
     bool load(int slot, const Header &h) {
         if (!h.generation || h.marker!=magic) return false;
         Bytes data(metadataSize());
-        transfer(fd.value,false,data.data(),data.size(),bank(slot)+sizeof(Header));
+        transfer(fd.value,false,data.data(),data.size(),bank(slot)+sizeof(Header),&stats.metadataPreads);
         if (crc32(0,data.data(),data.size())!=h.crc) return false;
         size_t n = sizeof(Inode)*nodes.size();
         std::memcpy(nodes.data(),data.data(),n);
@@ -170,14 +185,43 @@ struct Disk::Impl {
         }
         throw std::system_error(ENOSPC,std::generic_category(),"inode table full");
     }
-    std::vector<uint32_t> chain(const Inode &node) const {
+    const Page &page(uint32_t block) {
+        ++stats.accesses;
+        auto cached = byBlock.find(block);
+        if (cached != byBlock.end()) {
+            ++stats.hits;
+            recent.splice(recent.begin(), recent, cached->second);
+            return cached->second->second;
+        }
+        transfer(fd.value, false, scratch.data(), scratch.size(), off_t(block)*blockSize, &stats.dataPreads);
+        if (!stats.capacity) return scratch;
+        if (recent.size() == stats.capacity) {
+            byBlock.erase(recent.back().first);
+            recent.pop_back();
+        }
+        recent.emplace_front(block, scratch);
+        byBlock.emplace(block, recent.begin());
+        return recent.front().second;
+    }
+    void readSlice(uint32_t block, size_t within, void *dst, size_t len) {
+        if (stats.capacity) {
+            std::memcpy(dst, page(block).data()+within, len);
+        } else {
+            ++stats.accesses;
+            transfer(fd.value, false, dst, len, off_t(block)*blockSize+within, &stats.dataPreads);
+        }
+    }
+    void checkBlock(uint32_t b) const {
+        require(b>=dataStart() && b<s.blocks && marked(bitmap,b),"invalid data block");
+    }
+    std::vector<uint32_t> chain(const Inode &node) {
         require(node.kind==2 && node.length<=uint64_t(s.blocks)*payload,"invalid file inode");
         std::vector<uint32_t> blocks;
         uint32_t b=node.first;
         for (uint32_t i=0;i<ceiling(node.length,payload);++i) {
-            require(b>=dataStart() && b<s.blocks && marked(bitmap,b),"invalid data block");
+            checkBlock(b);
             blocks.push_back(b);
-            transfer(fd.value,false,&b,sizeof(b),off_t(blocks.back())*blockSize);
+            readSlice(blocks.back(),0,&b,sizeof(b));
         }
         require(b==end,"invalid block chain length");
         return blocks;
@@ -197,14 +241,16 @@ std::vector<std::string> Disk::list(const std::string &path) const {
 }
 Bytes Disk::read(const std::string &path) const {
     const auto &node=p->nodes[p->lookup(path)];
-    auto blocks=p->chain(node);
+    require(node.kind==2 && node.length<=uint64_t(p->s.blocks)*payload,"invalid file inode");
     Bytes bytes(node.length);
-    size_t pos=0;
-    for (auto b:blocks) {
-        size_t n=std::min<size_t>(payload,bytes.size()-pos);
-        transfer(p->fd.value,false,bytes.data()+pos,n,off_t(b)*blockSize+4);
-        pos+=n;
+    uint32_t block = node.first;
+    for (size_t pos=0; pos<bytes.size(); pos+=payload) {
+        p->checkBlock(block);
+        const auto &page = p->page(block);
+        std::memcpy(&block, page.data(), sizeof(block));
+        std::copy_n(page.data()+sizeof(block), std::min<size_t>(payload,bytes.size()-pos), bytes.data()+pos);
     }
+    require(block==end,"invalid block chain length");
     return bytes;
 }
 Bytes Disk::readRows(const std::string &path,uint64_t offset,size_t stride,size_t rowBytes,unsigned rows) const {
@@ -218,13 +264,13 @@ Bytes Disk::readRows(const std::string &path,uint64_t offset,size_t stride,size_
         for (size_t x=0;x<rowBytes;) {
             size_t within=pos%payload;
             size_t n=std::min(rowBytes-x,payload-within);
-            transfer(p->fd.value,false,result.data()+size_t(y)*rowBytes+x,n,
-                     off_t(blocks[pos/payload])*blockSize+4+within);
+            p->readSlice(blocks[pos/payload], 4+within, result.data()+size_t(y)*rowBytes+x, n);
             x+=n; pos+=n;
         }
     }
     return result;
 }
+CacheStats Disk::cacheStats() const { return p->stats; }
 uint32_t Disk::freeBlocks() const {
     uint32_t count=0;
     for (uint32_t i=p->dataStart();i<p->s.blocks;++i) if (!marked(p->bitmap,i)) ++count;
@@ -255,6 +301,12 @@ void Disk::put(const std::string &path,const Bytes &bytes) try {
     for (size_t i=0;i<blocks.size();++i) {
         uint32_t next=i+1<blocks.size()?blocks[i+1]:end;
         off_t pos=off_t(blocks[i])*blockSize;
+        // Writes always reach the image; discard any previous incarnation before I/O.
+        auto stale = p->byBlock.find(blocks[i]);
+        if (stale != p->byBlock.end()) {
+            p->recent.erase(stale->second);
+            p->byBlock.erase(stale);
+        }
         transfer(p->fd.value,true,&next,sizeof(next),pos);
         size_t offset=i*payload;
         transfer(p->fd.value,true,const_cast<unsigned char*>(bytes.data()+offset),

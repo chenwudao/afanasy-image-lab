@@ -52,5 +52,16 @@ int main(int argc, char **argv) {
     expect(Disk().freeBlocks()==free);
     { Disk d(true); d.erase(base+"/nested/item"); d.erase(base+"/nested"); d.save(); }
     expect(Disk().freeBlocks()==free+1);
+    {
+        // Keep one writer handle through multiple checkpoints and recycle the
+        // same first free block. A hit must never return the former inode's bytes.
+        Disk d(true);
+        d.put("/old",{19,20,21}); d.save();
+        expect(d.read("/old")==Bytes({19,20,21}));
+        d.erase("/old"); d.save();
+        d.put("/new",{33,34,35}); d.save();
+        expect(d.read("/new")==Bytes({33,34,35}));
+        expect(d.readRows("/new",1,3,2,1)==Bytes({34,35}));
+    }
     std::cout << "PASS inode reopen, nested paths, block reclamation, partial write, ENOSPC rollback and duplicate commit\n";
 }

@@ -188,6 +188,21 @@ def run():
         from web_acceptance import check_console
         check_console(runtime, until)
 
+    if os.environ.get("IMAGE_LAB_CACHE_TEST") == "1":
+        # Restart every participant so the server, renders, workers and CLI inherit
+        # the same capacity. Re-submit the images; reading old outputs tests less.
+        baseline = {path.name: expected[job] for job, _, path in completed}
+        for capacity in (0, 1, 2, 4):
+            shutdown()
+            os.environ["IMAGE_LAB_CACHE_BLOCKS"] = str(capacity)
+            start()
+            evidence = runtime / f"cache-{capacity}"
+            evidence.mkdir()
+            results = check_images(evidence, until, done)
+            hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for _, _, path in results}
+            assert hashes == baseline, (capacity, hashes, baseline)
+            print(f"PASS cache capacity {capacity}: four pixel references and four baseline PNG hashes")
+
 
 def shutdown():
     for proc in reversed(processes):

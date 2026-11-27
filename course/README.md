@@ -75,3 +75,16 @@ IMAGE_LAB_DEMO_DELAY_MS=5000 /usr/bin/python3 course/console_cluster.py
 管理页使用 Afanasy Browser 的原生 TaskItem、状态渲染和样式，图片作业继续使用原有 afserver/afrender 协议。角色和密码哈希、过期及可撤销的会话保存在私有 web.sqlite 中；上传时由服务端把登录身份写入镜像中的作业描述。普通用户只能经服务端读取自己的作业、增量事件、图块和结果，管理员可查看全局并终止核验过的计算尝试。旧作业及 CLI 提交的无所有者作业仅对管理员可见。课程模式下原生控制端口仅绑定本机 IPv4 并拒绝浏览器 HTTP，浏览器统一使用认证入口；同机能运行原生客户端或读取运行目录的 OS 账号属于受信任运行环境。退出登录或重置密码会撤销对应会话。
 
 CI 在真实四执行端集群中启用 IMAGE_LAB_BROWSER_TEST=1，使用两个隔离 Chromium context 检查两个普通账号的作业隔离，再在其中一个会话改用管理员登录。测试点击终止按钮，核对页面上的旧、新 PID 与尝试号，并检查下载的 PNG 和已验证的参考输出完全一致。截图随 image-lab-evidence 测试产物保存。
+
+## LRU 块缓存实验
+
+IMAGE_LAB_CACHE_BLOCKS 指定每个打开的 Disk 句柄可缓存多少个 4096 字节的数据块，默认 64，设为 0 即关闭。启动整个集群之前设置，提交端及其子进程应使用相同设置。容量按需分配；可设范围为 0–262144。链指针、完整文件与矩形行读取共用缓存。命中把块移到最近使用位置，满时淘汰最久未使用的块。写入直接更新镜像，在写入前作废对应缓存项。缓存寿命与持有文件锁的事务一致，其他进程写入后重新打开镜像会冷启动；每次独立打开的元数据读取单独计数。
+
+固定序列为 AABACABACABDDDCA。四个一块长的小文件分别对应四个不同的镜像数据块。每种容量在同一镜像上新开一个句柄，从空缓存按同一顺序读取 16 次。命中率为命中次数除以数据块访问次数。data_preads 在 pread 调用处计数，metadata_preads 另记挂载检查点等元数据读取。实验用 strace 按 disk.img 路径核对系统调用总数；操作系统页缓存也可能满足这些调用，计数反映应用到内核的镜像读取。
+
+在构建好的 Linux 环境运行以下命令。脚本创建独立的临时镜像，检查返回数据的 CRC，并输出可保存的 JSON。完整 CI 还会依次以 0、1、2、4 块容量重启服务与执行端，在每种配置下重新处理 130×150 的 PNG/JPEG 并逐像素核验灰度和反色，同时核对最终 PNG 的 SHA-256。
+
+```bash
+python3 course/cache_benchmark.py --output course-runtime/lru-results.json
+IMAGE_LAB_CACHE_BLOCKS=64 IMAGE_LAB_CACHE_TEST=1 /usr/bin/python3 course/integration.py
+```

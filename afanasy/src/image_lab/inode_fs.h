@@ -6,6 +6,14 @@
 namespace image_lab {
 using Bytes = std::vector<unsigned char>;
 
+struct CacheStats {
+    uint64_t capacity = 0;
+    uint64_t accesses = 0;
+    uint64_t hits = 0;
+    uint64_t dataPreads = 0;
+    uint64_t metadataPreads = 0;
+};
+
 // A handle owns a shared/exclusive flock for the lifetime of one transaction.
 // Dropping an unsaved transaction retains the previous namespace and bitmap.
 class Disk {
@@ -19,6 +27,7 @@ public:
     Bytes read(const std::string &path) const;
     Bytes readRows(const std::string &path,uint64_t offset,size_t stride,size_t rowBytes,unsigned rows) const;
     uint32_t freeBlocks() const;
+    CacheStats cacheStats() const;
     std::vector<std::string> list(const std::string &path) const;
     void mkdir(const std::string &path);
     void put(const std::string &path, const Bytes &data);

@@ -4,6 +4,7 @@
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
+#include <zlib.h>
 
 using image_lab::Bytes;
 using image_lab::Disk;
@@ -27,6 +28,19 @@ int main(int argc, char **argv) {
             disk.put(dir+"/source.rgb",rgb);
             if (suffix!="-") disk.put(dir+"/original."+suffix,original);
             disk.save(); return 0;
+        }
+        if (op=="trace" && argc>=3) {
+            Disk disk;
+            uLong checksum = 0;
+            for (int i=2; i<argc; ++i) {
+                const auto bytes = disk.read(argv[i]);
+                checksum = crc32(checksum, bytes.data(), bytes.size());
+            }
+            const auto stats = disk.cacheStats();
+            std::cout << "{\"capacity\":" << stats.capacity << ",\"accesses\":" << stats.accesses
+                      << ",\"hits\":" << stats.hits << ",\"data_preads\":" << stats.dataPreads
+                      << ",\"metadata_preads\":" << stats.metadataPreads << ",\"crc32\":" << checksum << "}\n";
+            return 0;
         }
         if (op=="free" && argc==2) { std::cout << Disk().freeBlocks() << '\n'; return 0; }
         if (argc!=3) throw std::runtime_error("expected one absolute image path");
