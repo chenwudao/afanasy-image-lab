@@ -10,8 +10,8 @@ async function run(){
     const browser=await chromium.launch({executablePath:process.env.CHROME_PATH||"/usr/bin/google-chrome",headless:true});
     const errors=[];
     try {
-        const ordinary=await browser.newContext({acceptDownloads:true});
-        const operator=await browser.newContext({acceptDownloads:true});
+        const ordinary=await browser.newContext({acceptDownloads:true,locale:"zh-CN"});
+        const operator=await browser.newContext({acceptDownloads:true,locale:"zh-CN"});
         const a=await ordinary.newPage(), b=await operator.newPage();
         for(const page of [a,b])page.on("pageerror",err=>errors.push(err.message));
         async function login(page,user){

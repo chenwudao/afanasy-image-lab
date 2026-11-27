@@ -50,7 +50,10 @@ async function refresh() {
         const signature=JSON.stringify(jobs);
         if(signature!==listSignature){
             el("jobs").replaceChildren(...jobs.map(j=>{
-                const b=create("button",j.filename+" · "+j.state);
+                const state=["DON","ERR","RUN","RDY"].find(s=>j.state.includes(s));
+                const title=j.filename===j.key?"作业 #"+j.id:j.filename;
+                const b=create("button",title+" · "+({DON:"完成",ERR:"错误",RUN:"运行中",RDY:"就绪"}[state]||j.state)
+                    +(user.role==="admin"&&j.owner?" · "+j.owner:""));
                 b.setAttribute("aria-current",String(j.key===key));b.onclick=()=>choose(j.key);return b;
             }));listSignature=signature;
         }
@@ -104,7 +107,7 @@ function render(){
         bar.style.width=Math.max(0,((end?.time_ms??now)-start.time_ms)*100/(lastTime-first))+"%";
         track.append(bar);lane.append(track,create("small",fmt(start.time_ms)+" – "+(end?fmt(end.time_ms):"运行中")));
         if(!end&&user.role==="admin"){const stop=create("button","终止 PID "+start.pid);
-            stop.onclick=async()=>{stop.disabled=true;selected=start.tile;try{await post("jobs/"+key+"/terminate",start);await refresh();}catch(e){message(e);}};lane.append(stop);}
+            stop.className="stop";stop.onclick=async()=>{stop.disabled=true;selected=start.tile;try{await post("jobs/"+key+"/terminate",start);await refresh();}catch(e){message(e);}};lane.append(stop);}
         return lane;
     }));
     const history=tileEvents.get(selected)||[], attemptsForTile=runs.filter(r=>r.start.tile===selected);

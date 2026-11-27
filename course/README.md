@@ -59,7 +59,7 @@ af-image-fs read "/$JOB_KEY/result.png" > recovered.png
 
 ## D 模块：管理台
 
-Linux 构建需包含 afserver、afrender、af-image-fs 和 af-image-worker，并把它们放在 PATH 中。安装 python3-flask、python3-opencv。创建两个普通用户和一个管理员，密码通过终端交互输入。没有内置密码。
+Linux 构建需包含 afserver、afrender、af-image-fs 和 af-image-worker，并把它们放在 PATH 中。安装 python3-flask、python3-opencv；用于投影演示的 Linux 浏览器可安装 fonts-noto-cjk 显示中文。创建两个普通用户和一个管理员，密码通过终端交互输入。没有内置密码。
 
 ```bash
 export IMAGE_LAB_ROOT="$PWD/course-runtime/demo"
