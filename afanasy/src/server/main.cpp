@@ -84,6 +84,13 @@ int main(int argc, char *argv[])
 
 	// Environment aready printed usage and we can exit.
 	if( ENV.isHelpMode()) return 0;
+	if (const char *policy = std::getenv("IMAGE_LAB_SCHEDULER")) {
+		const std::string value(policy);
+		if (value != "priority" && value != "fifo") {
+			AF_ERR << "IMAGE_LAB_SCHEDULER must be priority or fifo";
+			return 1;
+		}
+	}
 
 	// create directories if it is not exists
 	if (af::pathMakePath(ENV.getStoreFolder(),        af::VerboseOn) == false) return 1;

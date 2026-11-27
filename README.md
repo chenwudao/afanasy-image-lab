@@ -4,7 +4,7 @@
 
 ## 当前状态与上游
 
-A 模块已接入原生 afserver/afrender，提供图块派发、真实计算 PID 跟踪、尝试编号校验、故障重派与存储确认接口。运行命令、B/C/D 接口及单机四进程验收见 [A 模块联调说明](course/README.md)。B 模块将原图、作业描述、完成块和最终 PNG 存入自建 inode 镜像，C 模块已接通 PNG/JPEG 输入及灰度、反色导出。D 模块已接入双角色登录、作业归属检查、原生任务状态行、就绪队列、图块实像、PID 时间线与单块重试记录。单机启动和双浏览器验收见[管理台说明](course/README.md#d-模块管理台)。LRU 数据块缓存、整盘备份恢复和[服务器崩溃续跑](course/README.md#服务器崩溃续跑)已接入，见[容量对照实验](course/README.md#lru-块缓存实验)和[整盘备份与恢复](course/README.md#整盘备份与恢复)。上游基线为 [CGRU/cgru 的 a51c6e3](https://github.com/CGRU/cgru/tree/a51c6e393567ec61e996810c43c72fa87bfba0bf)。原版使用说明见 [上游 README](https://github.com/CGRU/cgru/blob/a51c6e393567ec61e996810c43c72fa87bfba0bf/README.md)，版权与许可见 [LICENSE.txt](LICENSE.txt) 及各组件内的许可文件。
+A 模块已接入原生 afserver/afrender，提供图块派发、真实计算 PID 跟踪、尝试编号校验、故障重派与存储确认接口。运行命令、B/C/D 接口及单机四进程验收见 [A 模块联调说明](course/README.md)。B 模块将原图、作业描述、完成块和最终 PNG 存入自建 inode 镜像，C 模块已接通 PNG/JPEG 输入及灰度、反色导出。D 模块已接入双角色登录、作业归属检查、原生任务状态行、就绪队列、图块实像、PID 时间线与单块重试记录。单机启动和双浏览器验收见[管理台说明](course/README.md#d-模块管理台)。LRU 数据块缓存、整盘备份恢复、[服务器崩溃续跑](course/README.md#服务器崩溃续跑)和[调度策略对比](course/README.md#调度策略对比)已接入，见[容量对照实验](course/README.md#lru-块缓存实验)和[整盘备份与恢复](course/README.md#整盘备份与恢复)。上游基线为 [CGRU/cgru 的 a51c6e3](https://github.com/CGRU/cgru/tree/a51c6e393567ec61e996810c43c72fa87bfba0bf)。原版使用说明见 [上游 README](https://github.com/CGRU/cgru/blob/a51c6e393567ec61e996810c43c72fa87bfba0bf/README.md)，版权与许可见 [LICENSE.txt](LICENSE.txt) 及各组件内的许可文件。
 
 ## 运行结构与用户角色
 

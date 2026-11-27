@@ -80,6 +80,7 @@ def start():
 
 
 def run():
+    os.environ["IMAGE_LAB_SCHEDULER"] = "priority"
     start()
     import af
     def done(job):
@@ -233,6 +234,10 @@ def run():
             hashes = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for _, _, path in results}
             assert hashes == baseline, (capacity, hashes, baseline)
             print(f"PASS cache capacity {capacity}: four pixel references and four baseline PNG hashes")
+
+    if os.environ.get("IMAGE_LAB_SCHEDULER_TEST") == "1":
+        from scheduling_benchmark import check_schedulers
+        check_schedulers(runtime, start, shutdown, until, done)
 
 
 def shutdown():

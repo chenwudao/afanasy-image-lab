@@ -194,7 +194,8 @@ def create_app():
                     pending.pop(e["tile"],None)
             ready.extend(dict(key=job["key"], filename=job["filename"], priority=job["priority"],
                               tile=t, sequence=s) for t,s in pending.items())
-        return jsonify(sorted(ready,key=lambda e:(e["priority"]!="high",e["sequence"])))
+        fifo = os.getenv("IMAGE_LAB_SCHEDULER") == "fifo"
+        return jsonify(sorted(ready,key=lambda e:(not fifo and e["priority"]!="high",e["sequence"])))
 
     @app.post("/api/jobs")
     def upload():

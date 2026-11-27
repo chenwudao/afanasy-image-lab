@@ -1013,6 +1013,9 @@ bool JobAf::solveImageTile(RenderAf *render, MonitorContainer *monitoring)
 	JobAf *winner = NULL;
 	int tile = -1;
 	uint64_t oldest = 0;
+	int bestPriority = 0;
+	const char *policy = std::getenv("IMAGE_LAB_SCHEDULER");
+	const bool fifo = policy && std::string(policy) == "fifo";
 	for (JobContainerIt it(ms_jobs); it.job(); it.next())
 	{
 		JobAf *job = it.job();
@@ -1021,17 +1024,18 @@ bool JobAf::solveImageTile(RenderAf *render, MonitorContainer *monitoring)
 		if (!job->m_user->canRun() || !job->m_user->canRunOn(render) ||
 		    !job->m_branch_srv->canRun() || !job->m_branch_srv->canRunOn(render))
 			continue;
+		const int priority = fifo ? 0 : job->getPriority();
 		for (size_t t = 0; t < job->m_image_ready_order.size(); ++t)
 		{
 			uint64_t order = job->m_image_ready_order[t];
 			if (!order || job->m_blocks[0]->m_tasks[t]->avoidHostsCheck(render->getName()))
 				continue;
-			if (!winner || job->getPriority() > winner->getPriority() ||
-			    (job->getPriority() == winner->getPriority() && order < oldest))
+			if (!winner || priority > bestPriority || (priority == bestPriority && order < oldest))
 			{
 				winner = job;
 				tile = int(t);
 				oldest = order;
+				bestPriority = priority;
 			}
 		}
 	}
