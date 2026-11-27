@@ -3,7 +3,7 @@ const el = id => document.getElementById(id);
 const create = (tag, text) => Object.assign(document.createElement(tag), {textContent:text || ""});
 let user, key, cursor = 0, events = [], selected = 0, job, busy = false, version = 0, listSignature;
 const labels = {queued:"进入队列",dispatched:"派发", started:"开始", killed:"已终止", failed:"失败", requeued:"重新入队",
-                committed:"提交完成", commit_failed:"提交失败"};
+                committed:"提交完成", recovered:"已恢复提交", commit_failed:"提交失败"};
 const fmt = ms => new Date(ms).toLocaleTimeString("zh-CN", {hour12:false, fractionalSecondDigits:3,hour:"2-digit",minute:"2-digit",second:"2-digit"});
 function message(error) { el("notice").textContent = error.message || String(error); }
 async function api(path, options={}) {

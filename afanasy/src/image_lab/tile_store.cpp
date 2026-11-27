@@ -11,6 +11,9 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <csignal>
+#include <limits>
+#include <system_error>
 #include <stdexcept>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -74,10 +77,47 @@ Bytes source(const std::string &dir,const Tile &t) {
                            size_t(t.width)*3,size_t(t.w)*3,t.h);
 }
 
+static Bytes attemptTable(Disk &disk,const std::string &base) {
+    auto path=base+"/attempts.bin";
+    Bytes values=disk.exists(path) ? disk.read(path) : Bytes{};
+    check(values.size()%sizeof(int32_t)==0,"invalid attempt table");
+    return values;
+}
+static int attemptAt(const Bytes &values,unsigned tile) {
+    int32_t attempt=0;
+    if (tile<values.size()/sizeof(attempt))
+        std::memcpy(&attempt,values.data()+size_t(tile)*sizeof(attempt),sizeof(attempt));
+    return attempt;
+}
+static void discardStages(Disk &disk,const std::string &base,int tile) {
+    auto stem="tile-"+std::to_string(tile)+".attempt-";
+    for (const auto &name:disk.list(base))
+        if (name.compare(0,stem.size(),stem)==0) disk.erase(base+"/"+name);
+}
+int reserveAttempt(const std::string &dir,int tile,int previous) {
+    Disk disk(true);
+    auto base=imageDir(dir);
+    describe(disk.read(base+"/manifest"),tile);
+    check(!disk.exists(prefix(base,tile)+".rgb"),"tile already committed");
+    auto values=attemptTable(disk,base);
+    int previousAttempt=std::max(previous,attemptAt(values,tile));
+    check(previousAttempt<std::numeric_limits<int32_t>::max(),"attempt counter exhausted");
+    int32_t next=previousAttempt+1;
+    size_t offset=size_t(tile)*sizeof(next);
+    if (offset+sizeof(next)>values.size()) values.resize(offset+sizeof(next));
+    std::memcpy(values.data()+offset,&next,sizeof(next));
+    discardStages(disk,base,tile);
+    disk.put(base+"/attempts.bin",values);
+    disk.save();
+    return next;
+}
+
 void stage(const std::string &dir, int tile, int attempt, const Bytes &rgb) {
     Disk disk(true);
     auto base=imageDir(dir);
     check(rgb.size()==describe(disk.read(base+"/manifest"),tile).bytes(),"incorrect tile payload length");
+    int current=attemptAt(attemptTable(disk,base),tile);
+    if (current) check(current==attempt && !disk.exists(prefix(base,tile)+".rgb"),"stale worker attempt");
     disk.put(prefix(base,tile)+".attempt-"+std::to_string(attempt),rgb);
     disk.save();
 }
@@ -137,6 +177,48 @@ void migrateCompleted(const std::string &key) {
     disk.save();
 }
 
+static unsigned countTiles(const Bytes &manifest) {
+    auto t=describe(manifest,0);
+    return ((t.width+t.w-1)/t.w)*((t.height+t.h-1)/t.h);
+}
+
+void crashCheckpoint(const char *point) {
+    const char *selected=std::getenv("IMAGE_LAB_TEST_CRASH_POINT");
+    if (!selected || std::strcmp(selected,point)!=0) return;
+    const char *marker=std::getenv("IMAGE_LAB_TEST_CRASH_MARKER");
+    check(marker && *marker,"missing crash test marker");
+    File markerFile(open(marker,O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,0600));
+    raise(SIGSTOP); // The integration test verifies the state then kills afserver.
+}
+
+Recovery recover(const std::string &dir,unsigned tileCount) {
+    Disk disk;
+    auto base=imageDir(dir);
+    auto manifest=disk.read(base+"/manifest");
+    check(countTiles(manifest)==tileCount,"Afanasy and image tile counts differ");
+    auto attempts=attemptTable(disk,base);
+    Recovery result;
+    for (unsigned i=0;i<tileCount;++i) {
+        auto path=prefix(base,i)+".rgb";
+        bool exists=disk.exists(path);
+        if (exists) check(disk.size(path)==describe(manifest,i).bytes(),"invalid committed tile");
+        result.committed.push_back(exists);
+        result.attempts.push_back(attemptAt(attempts,i));
+    }
+    result.needsPng=!disk.exists(base+"/result.png") &&
+        std::all_of(result.committed.begin(),result.committed.end(),[](bool value){return value;});
+    return result;
+}
+
+void finishImage(const std::string &dir) {
+    Disk disk(true);
+    auto base=imageDir(dir);
+    if (disk.exists(base+"/result.png")) return;
+    auto manifest=disk.read(base+"/manifest");
+    disk.put(base+"/result.png",assemble(disk,base,manifest,countTiles(manifest)));
+    disk.save();
+}
+
 void commit(const std::string &dir, int tile, int attempt) {
     Disk disk(true);
     auto base=imageDir(dir);
@@ -149,6 +231,8 @@ void commit(const std::string &dir, int tile, int attempt) {
         if (disk.exists(staged)) { disk.erase(staged); disk.save(); }
         return;
     }
+    int current=attemptAt(attemptTable(disk,base),tile);
+    if (current) check(current==attempt,"stale result");
     check(disk.size(staged)==t.bytes(),"partial staged tile");
     disk.rename(staged,final);
     auto first=describe(manifest,0);
@@ -157,8 +241,21 @@ void commit(const std::string &dir, int tile, int attempt) {
     size_t committed=std::count_if(names.begin(),names.end(),[](const std::string &n) {
         return n.compare(0,5,"tile-")==0 && n.size()>4 && n.compare(n.size()-4,4,".rgb")==0;
     });
-    if (committed==total) disk.put(base+"/result.png",assemble(disk,base,manifest,total));
-    // Publish the last tile and final PNG in the same checkpoint before DONE.
+    disk.save();
+    if (committed!=total) return;
+
+    crashCheckpoint("before-stitch");
+    try {
+        disk.put(base+"/result.png",assemble(disk,base,manifest,total));
+    } catch (const std::system_error &e) {
+        if (e.code().value()!=ENOSPC) throw;
+        // A full disk leaves the current attempt staged, as before. The lock
+        // excludes readers until the rollback checkpoint has been published.
+        disk.discardChanges();
+        disk.rename(final,staged);
+        disk.save();
+        throw;
+    }
     disk.save();
 }
 void event(const std::string &dir, int tile, int attempt, const std::string &state, int pid, uint64_t dispatchSequence) {

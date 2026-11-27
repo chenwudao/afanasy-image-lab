@@ -37,6 +37,7 @@ jobs:
         env:
           IMAGE_LAB_BROWSER_TEST: "1"
           IMAGE_LAB_CACHE_TEST: "1"
+          IMAGE_LAB_CRASH_TEST: "1"
         run: /usr/bin/python3 -u course/integration.py
       - uses: actions/upload-artifact@v4
         if: always()

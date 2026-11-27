@@ -345,6 +345,35 @@ bool JobAf::initialize()
 
 	checkStates();
 
+#ifdef LINUX
+	if (isFromStore() && isImageJob()) {
+		try {
+			const auto &env = m_blocks_data[0]->getEnvironment();
+			auto key = env.at("IMAGE_JOB_KEY");
+			auto dir = image_lab::jobDirectory(key);
+			auto recovery = image_lab::recover(dir, m_blocks_data[0]->getTasksNum());
+			for (size_t tile = 0; tile < recovery.committed.size(); ++tile) {
+				auto *progress = m_progress->tp[0][tile];
+				progress->starts_count = std::max(progress->starts_count, recovery.attempts[tile]);
+				if (recovery.committed[tile]) {
+					if (!(progress->state & AFJOB::STATE_DONE_MASK))
+						image_lab::observe(key, tile, progress->starts_count, "recovered");
+					progress->state = AFJOB::STATE_DONE_MASK;
+				} else if (!(progress->state & AFJOB::STATE_SUSPENDED_MASK)) {
+					// Native reconnect must not adopt a previous server's attempt.
+					progress->state = AFJOB::STATE_READY_MASK;
+				}
+				m_blocks[0]->m_tasks[tile]->v_store();
+			}
+			if (recovery.needsPng) m_image_finalize_dir = dir;
+			m_force_refresh = true;
+		} catch (const std::exception &e) {
+			AF_ERR << "Cannot reconcile image job " << m_name << ": " << e.what();
+			return false;
+		}
+	}
+#endif
+
 	v_refresh( time(NULL), NULL, NULL);
 
 	return true;
@@ -1111,6 +1140,20 @@ bool JobAf::solveTaskOnRender(RenderAf * i_render, int i_block_num, int i_task_n
 	if (m_user->hasCustomData())
 		task_exec->setDataString("user_custom_data", m_user->getCustomData());
 
+#ifdef LINUX
+	if (isImageJob()) {
+		try {
+			auto dir = image_lab::jobDirectory(task_exec->getEnv().at("IMAGE_JOB_KEY"));
+			int previous = m_progress->tp[i_block_num][i_task_num]->starts_count;
+			task_exec->setNumber(image_lab::reserveAttempt(dir,i_task_num,previous));
+		} catch (const std::exception &e) {
+			AF_ERR << "Cannot reserve image attempt: " << e.what();
+			delete task_exec;
+			return false;
+		}
+	}
+#endif
+
 	// Job was not able to start a task.
 	// This should not happen.
 	// This is some error situation (probably system job), see server log.
@@ -1306,6 +1349,19 @@ void JobAf::v_refresh( time_t currentTime, AfContainer * pointer, MonitorContain
 		m_state  = m_state & (state_block | (~AFJOB::STATE_DONE_MASK)     );
 	}
 	
+#ifdef LINUX
+	if (!m_image_finalize_dir.empty()) {
+		try {
+			image_lab::finishImage(m_image_finalize_dir);
+			m_image_finalize_dir.clear();
+		} catch (const std::exception &e) {
+			if (!(old_state & AFJOB::STATE_ERROR_MASK))
+				AF_ERR << "Image output recovery pending: " << e.what();
+			m_state &= ~AFJOB::STATE_DONE_MASK;
+			m_state |= AFJOB::STATE_ERROR_MASK;
+		}
+	}
+#endif
 	if( m_state & AFJOB::STATE_WAITDEP_MASK  ) m_state = m_state & (~AFJOB::STATE_READY_MASK);
 	if( m_state & AFJOB::STATE_WAITTIME_MASK ) m_state = m_state & (~AFJOB::STATE_READY_MASK);
 	

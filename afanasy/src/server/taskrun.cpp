@@ -68,7 +68,10 @@ TaskRun::TaskRun( Task * runningTask,
    m_progress->hostname = render->getName();
 	if (m_exec->getServiceType() == "image_tile")
 	{
-		m_exec->setNumber(m_progress->starts_count);
+		if (m_exec->getNumber() > 0)
+			m_progress->starts_count = m_exec->getNumber();
+		else
+			m_exec->setNumber(m_progress->starts_count);
 		m_exec->joinEnvironment({{"IMAGE_ATTEMPT", std::to_string(m_progress->starts_count)}});
 #ifdef LINUX
 		static uint64_t dispatchSequence = 0;
@@ -210,6 +213,9 @@ void TaskRun::update(const af::MCTaskUp& taskup, RenderContainer * renders, Moni
 				const std::string dir = image_lab::jobDirectory(m_exec->getEnv().at("IMAGE_JOB_KEY"));
 				if (taskup.getStatus() != af::TaskExec::UPFinishedSuccess)
 					throw std::runtime_error("worker did not report a successful calculation");
+				const char *testTile = std::getenv("IMAGE_LAB_TEST_CRASH_TILE");
+				if (testTile && std::to_string(m_tasknum)==testTile)
+					image_lab::crashCheckpoint("before-confirm");
 				image_lab::commit(dir, m_tasknum, m_exec->getNumber());
 				image_lab::observe(m_exec->getEnv().at("IMAGE_JOB_KEY"), m_tasknum, m_exec->getNumber(), "committed");
 			}

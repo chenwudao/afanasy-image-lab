@@ -367,6 +367,17 @@ void Disk::rename(const std::string &from,const std::string &to) {
     std::memcpy(p->nodes[i].name,parts.second.data(),parts.second.size());
 }
 void Disk::save() { p->publish(); }
+void Disk::discardChanges() {
+    require(p->writer,"read-only transaction");
+    Header h{};
+    transfer(p->fd.value,false,&h,sizeof(h),p->bank(p->active));
+    require(p->load(p->active,h),"cannot reload active checkpoint");
+    p->reserved=p->bitmap;
+    p->hint=p->dataStart();
+    p->poisoned=false;
+    p->byBlock.clear();
+    p->recent.clear();
+}
 
 void Disk::backup(const std::string &destination) {
     // A shared flock pins the checkpoint and all data blocks for the full copy.

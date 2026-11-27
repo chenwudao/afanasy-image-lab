@@ -167,6 +167,7 @@ private:
 	std::vector<uint64_t> m_image_ready_order;
 	bool isImageJob() const;
 	void refreshImageQueue();
+	std::string m_image_finalize_dir;
 	bool solveImageTile(RenderAf *render, MonitorContainer *monitoring);
 
 	bool solveOnRender( RenderAf * i_render, MonitorContainer * i_monitoring);

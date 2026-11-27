@@ -215,6 +215,10 @@ def run():
         from web_acceptance import check_console
         check_console(runtime, until)
 
+    if os.environ.get("IMAGE_LAB_CRASH_TEST") == "1":
+        from crash_acceptance import check_crashes
+        check_crashes(runtime, start, shutdown, launch, processes, events, until, done)
+
     if os.environ.get("IMAGE_LAB_CACHE_TEST") == "1":
         # Restart every participant so the server, renders, workers and CLI inherit
         # the same capacity. Re-submit the images; reading old outputs tests less.
