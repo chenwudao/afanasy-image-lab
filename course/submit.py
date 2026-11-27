@@ -6,7 +6,7 @@ from pathlib import Path
 import uuid
 
 
-def submit(pixels, width, height, operation, priority="normal", side=64, delay_ms=0):
+def submit(pixels, width, height, operation, priority="normal", side=64, delay_ms=0, *, original=None):
     import af
     if not (0 < width <= 65535 and 0 < height <= 65535 and 0 < side <= 1024):
         raise ValueError("invalid RGB8 dimensions")
@@ -18,7 +18,11 @@ def submit(pixels, width, height, operation, priority="normal", side=64, delay_m
         raise ValueError("demo delay must be 0..60000 ms")
     key = uuid.uuid4().hex
     directory = Path(os.environ["IMAGE_LAB_ROOT"]) / key
+    if original is not None and original[0] not in {"jpg", "png"}:
+        raise ValueError("unsupported original format")
     directory.mkdir(mode=0o700)
+    if original is not None:
+        (directory / ("original." + original[0])).write_bytes(original[1])
     (directory / "source.rgb").write_bytes(pixels)
     (directory / "manifest").write_text(f"{width} {height} {side} {operation}\n")
     job = af.Job("Image " + key)

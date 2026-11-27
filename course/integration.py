@@ -135,6 +135,8 @@ def run():
     until("admin recovery", lambda: done(admin_job))
     assert (admin_dir/"tile-0.rgb").read_bytes() == bytes([254,253,252])
     print("PASS admin termination", events(admin_dir))
+    from image_acceptance import check_images
+    check_images(runtime, until, done)
 
 
 try:

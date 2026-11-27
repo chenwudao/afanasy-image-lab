@@ -28,3 +28,14 @@ python3 -u course/integration.py
 ## 通过条件
 
 单块灰度像素与串行值一致。普通作业的四块同时占用四个不同 PID，随后提交的高优先级两块按入队顺序获得接下来的两个派发位置。终端终止某一次计算后，受影响的块使用新 PID 重派，其他块保留，最终结果逐字节正确。管理接口拒绝错误尝试号，终止正确尝试后同样可完成。存储测试覆盖边缘块、部分写入、确认丢失重放以及迟到重复结果。
+
+## C 模块：真实图片往返
+
+单机集群启动后，在已配置 Afanasy Python 客户端与 IMAGE_LAB_ROOT 的提交环境安装 python3-opencv，并运行：
+
+```bash
+/usr/bin/python3 course/image_job.py photo.jpg result.png --operation gray
+/usr/bin/python3 course/image_job.py photo.png inverted.png --operation invert
+```
+
+输入按文件内容识别 PNG 或 JPEG，解码为原始存储方向的三通道 RGB8（舍弃透明度）。原文件和解码像素一起保存在作业目录。命令等待真实作业完成，按块号计算二维坐标，从正式块读取像素，全部尺寸校验成功后原子发布 PNG。集成测试使用 130×150 的非对称彩图、64×64 图块和独立的整图参考，重新打开实际导出的 PNG 逐像素比较。JPEG 的参考输入取自有损编码后的解码图。
