@@ -11,8 +11,8 @@ struct Tile {
     size_t bytes() const { return size_t(w) * h * 3; }
 };
 
-// Only explicit single-host course jobs use this adapter. B can replace its
-// internals with inode transactions without changing worker or scheduler IDs.
+// Events use the host directory; all job payloads use the inode namespace.
+void migrateCompleted(const std::string &key);
 std::string jobDirectory(const std::string &key);
 std::vector<unsigned char> source(const std::string &dir,const Tile &t);
 Tile descriptor(const std::string &dir, int tile);

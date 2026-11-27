@@ -53,6 +53,8 @@ def start():
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     config = runtime / "config.json"
+    if config.exists():
+        port = json.loads(config.read_text())["cgru_config"]["af_serverport"]
     config.write_text(json.dumps({"cgru_config": {"af_servername": "127.0.0.1",
                       "af_serverport": port, "af_store_folder": str(runtime / "server"),
                       "af_render_nice": 0}}))
@@ -154,8 +156,28 @@ def run():
 
     import hashlib
     from image_job import export_png
+    # A completed pre-inode job can be migrated, including its uneven final block.
+    legacy = runtime/("e"*32)
+    legacy.mkdir()
+    (legacy/"manifest").write_text("3 1 2 invert")
+    (legacy/"source.rgb").write_bytes(bytes(range(9)))
+    (legacy/"tile-0.rgb").write_bytes(bytes(255-x for x in range(6)))
+    (legacy/"tile-1.rgb").write_bytes(bytes(255-x for x in range(6,9)))
+    import cv2
+    recovered = export_png(legacy, runtime/"legacy.png")
+    assert cv2.imread(str(recovered))[:,:,::-1].tobytes() == bytes(255-x for x in range(9))
+    print("PASS completed legacy job migration")
     expected = {job: hashlib.sha256(path.read_bytes()).hexdigest() for job, _, path in completed}
+    # Keep only the disk image for a standalone export as well.
+    import shutil
+    isolated = runtime/"image-only"
+    isolated.mkdir()
     shutdown()
+    shutil.copyfile(runtime/"disk.img",isolated/"disk.img")
+    for job, directory, _ in completed:
+        result = subprocess.check_output(["af-image-fs","read",f"/{directory.name}/result.png"],
+                                         env=dict(os.environ, IMAGE_LAB_ROOT=str(isolated)))
+        assert hashlib.sha256(result).hexdigest()==expected[job]
     start()
     for job, directory, path in completed:
         until("restored job visible", lambda: done(job))

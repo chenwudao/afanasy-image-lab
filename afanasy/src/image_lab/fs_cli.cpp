@@ -1,4 +1,5 @@
 #include "inode_fs.h"
+#include "tile_store.h"
 #include <cstdlib>
 #include <iostream>
 #include <iterator>
@@ -10,6 +11,7 @@ int main(int argc, char **argv) {
     try {
         if (argc < 2) throw std::runtime_error("expected init, prepare, read, list, mkdir, put or rm");
         std::string op=argv[1];
+        if (op=="import-completed" && argc==3) { image_lab::migrateCompleted(argv[2]); return 0; }
         if (op=="init" && argc==3) { Disk disk(true,true,std::stoul(argv[2])); return 0; }
         if (op=="prepare" && argc==6) {
             // One namespace checkpoint for all job inputs, including the uploaded bytes.

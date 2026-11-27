@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 
 from submit import submit
-from image_store import read
+from image_store import read, fs
 
 
 def submit_image(path, operation, priority="normal", side=64):
@@ -33,6 +33,8 @@ def submit_image(path, operation, priority="normal", side=64):
 
 def export_png(directory, output):
     directory, output = Path(directory), Path(output)
+    if (directory / "manifest").is_file():  # pre-inode completed job
+        fs("import-completed", directory.name)
     encoded = read(directory, "result.png")
     temp = None
     try:

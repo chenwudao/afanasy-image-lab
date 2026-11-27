@@ -58,6 +58,7 @@ struct Disk::Impl {
     std::vector<Inode> nodes;
     Bytes bitmap, reserved;
     bool writer;
+    bool poisoned = false;
     int active = 1;
     uint64_t generation = 0;
     uint32_t hint = 0;
@@ -119,7 +120,7 @@ struct Disk::Impl {
     }
 
     void publish() {
-        require(writer,"read-only transaction");
+        require(writer && !poisoned,"read-only or aborted transaction");
         Bytes data(metadataSize());
         size_t n = sizeof(Inode)*nodes.size();
         std::memcpy(data.data(),nodes.data(),n);
@@ -130,7 +131,7 @@ struct Disk::Impl {
         Header h{generation+1,uint32_t(crc32(0,data.data(),data.size())),magic};
         transfer(fd.value,true,&h,sizeof(h),bank(slot));
         sync();
-        active=slot; generation=h.generation; reserved=bitmap;
+        active=slot; generation=h.generation; reserved=bitmap; hint=dataStart();
     }
 
     uint32_t child(uint32_t parent, const std::string &name) const {
@@ -237,7 +238,7 @@ void Disk::erase(const std::string &path) {
     else for (auto b:p->chain(p->nodes[i])) mark(p->bitmap,b,false);
     p->nodes[i]={};
 }
-void Disk::put(const std::string &path,const Bytes &bytes) {
+void Disk::put(const std::string &path,const Bytes &bytes) try {
     require(p->writer,"read-only transaction");
     if (exists(path)) {
         require(p->nodes[p->lookup(path)].kind==2,"not a file");
@@ -260,13 +261,18 @@ void Disk::put(const std::string &path,const Bytes &bytes) {
                  std::min<size_t>(payload,bytes.size()-offset),pos+4);
     }
     node.first=blocks.empty()?end:blocks.front(); node.length=bytes.size();
+} catch (...) {
+    p->poisoned=true;
+    throw;
 }
 void Disk::rename(const std::string &from,const std::string &to) {
     require(p->writer && !exists(to),"invalid rename");
     auto i=p->lookup(from);
     require(p->nodes[i].kind==2,"rename requires a file");
     auto parts=Impl::split(to);
-    p->nodes[i].parent=p->lookup(parts.first);
+    auto parent=p->lookup(parts.first);
+    require(p->nodes[parent].kind==1,"parent is not a directory");
+    p->nodes[i].parent=parent;
     std::memset(p->nodes[i].name,0,sizeof(Inode::name));
     std::memcpy(p->nodes[i].name,parts.second.data(),parts.second.size());
 }

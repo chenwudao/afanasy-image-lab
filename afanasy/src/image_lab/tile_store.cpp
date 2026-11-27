@@ -104,6 +104,39 @@ static Bytes assemble(Disk &disk,const std::string &base,const Bytes &manifest,u
     return png;
 }
 
+void migrateCompleted(const std::string &key) {
+    const std::string legacy=jobDirectory(key), base="/"+key;
+    Disk disk(true,true);
+    if (disk.exists(base+"/result.png")) return;
+    auto load=[&legacy](const std::string &name) {
+        std::ifstream in(legacy+"/"+name,std::ios::binary);
+        check(in.is_open(),"missing legacy job file");
+        Bytes bytes((std::istreambuf_iterator<char>(in)),{});
+        check(!in.bad(),"legacy file read failed");
+        return bytes;
+    };
+    disk.mkdir(base);
+    auto manifest=load("manifest");
+    auto first=describe(manifest,0);
+    auto source=load("source.rgb");
+    check(source.size()==size_t(first.width)*first.height*3,"invalid legacy input size");
+    disk.put(base+"/manifest",manifest);
+    disk.put(base+"/source.rgb",source);
+    for (const std::string suffix:{"png","jpg"}) {
+        auto name="original."+suffix;
+        if (access((legacy+"/"+name).c_str(),F_OK)==0) disk.put(base+"/"+name,load(name));
+    }
+    unsigned count=((first.width+first.w-1)/first.w)*((first.height+first.h-1)/first.h);
+    for (unsigned i=0;i<count;++i) {
+        auto name="tile-"+std::to_string(i)+".rgb";
+        auto rgb=load(name);
+        check(rgb.size()==describe(manifest,i).bytes(),"incomplete legacy tile");
+        disk.put(base+"/"+name,rgb);
+    }
+    disk.put(base+"/result.png",assemble(disk,base,manifest,count));
+    disk.save();
+}
+
 void commit(const std::string &dir, int tile, int attempt) {
     Disk disk(true);
     auto base=imageDir(dir);

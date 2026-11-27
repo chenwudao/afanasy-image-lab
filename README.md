@@ -4,7 +4,7 @@
 
 ## 当前状态与上游
 
-A 模块已接入原生 afserver/afrender，提供图块派发、真实计算 PID 跟踪、尝试编号校验、故障重派与存储确认接口。运行命令、B/C/D 接口及单机四进程验收见 [A 模块联调说明](course/README.md)。当前存储为联调适配器，双角色页面、自建 inode 镜像与四项扩展仍待集成。上游基线为 [CGRU/cgru 的 a51c6e3](https://github.com/CGRU/cgru/tree/a51c6e393567ec61e996810c43c72fa87bfba0bf)。原版使用说明见 [上游 README](https://github.com/CGRU/cgru/blob/a51c6e393567ec61e996810c43c72fa87bfba0bf/README.md)，版权与许可见 [LICENSE.txt](LICENSE.txt) 及各组件内的许可文件。
+A 模块已接入原生 afserver/afrender，提供图块派发、真实计算 PID 跟踪、尝试编号校验、故障重派与存储确认接口。运行命令、B/C/D 接口及单机四进程验收见 [A 模块联调说明](course/README.md)。B 模块将原图、作业描述、完成块和最终 PNG 存入自建 inode 镜像，C 模块已接通 PNG/JPEG 输入及灰度、反色导出。双角色页面与四项扩展仍待集成。上游基线为 [CGRU/cgru 的 a51c6e3](https://github.com/CGRU/cgru/tree/a51c6e393567ec61e996810c43c72fa87bfba0bf)。原版使用说明见 [上游 README](https://github.com/CGRU/cgru/blob/a51c6e393567ec61e996810c43c72fa87bfba0bf/README.md)，版权与许可见 [LICENSE.txt](LICENSE.txt) 及各组件内的许可文件。
 
 ## 运行结构与用户角色
 

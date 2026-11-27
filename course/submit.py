@@ -24,7 +24,7 @@ def submit(pixels, width, height, operation, priority="normal", side=64, delay_m
     directory.mkdir(mode=0o700)
     suffix, encoded = original or ("-", b"")
     try:
-        fs("prepare", "/" + key, f"{width} {height} {side} {operation}\n", len(pixels),
+        fs("prepare", "/" + key, f"{width} {height} {side} {operation} {priority}\n", len(pixels),
            suffix, data=pixels + encoded)
     except Exception:
         directory.rmdir()

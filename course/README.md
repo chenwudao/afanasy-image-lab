@@ -29,6 +29,23 @@ python3 -u course/integration.py
 
 单块灰度像素与串行值一致。普通作业的四块同时占用四个不同 PID，随后提交的高优先级两块按入队顺序获得接下来的两个派发位置。终端终止某一次计算后，受影响的块使用新 PID 重派，其他块保留，最终结果逐字节正确。管理接口拒绝错误尝试号，终止正确尝试后同样可完成。存储测试覆盖边缘块、部分写入、确认丢失重放以及迟到重复结果。
 
+## B 模块 · disk.img
+
+所有进程共用 IMAGE_LAB_ROOT/disk.img。超级块记录版本和容量，两个交替的元数据区各含世代号、CRC、inode 表与空闲块位图。目录由父 inode 编号与子项名称解析。数据块 4096 字节，其中 4 字节指向下一块。写事务持独占文件锁，先分配空闲块，写入并刷盘，再发布新的元数据检查点。空间不足时读者仍看到先前完整的文件和位图。共享读锁允许多个 Worker 同时取数。事件日志及 Afanasy 自身的节点状态仍采用各自的存储。
+
+首次提交会创建 64 MiB 镜像。也可以先运行以下命令，以 4096 字节为单位指定新镜像容量。已有镜像按原容量打开。服务端、执行端、提交端应共享同一私有目录及镜像。本版本使用 Linux 小端格式。
+
+```bash
+export IMAGE_LAB_ROOT="$PWD/course-runtime"
+mkdir -p "$IMAGE_LAB_ROOT"
+af-image-fs init 16384
+af-image-fs list /
+af-image-fs list "/$JOB_KEY"
+af-image-fs read "/$JOB_KEY/result.png" > recovered.png
+```
+
+镜像内每个作业保存 manifest（尺寸、块边长、操作和优先级）、source.rgb、上传的 original.png 或 original.jpg、tile-N.rgb 及 result.png。stage 的尝试文件与正式块分名，commit 在同一事务中重命名并确认；最后的 PNG 若写入失败，最后一块也不会成为正式结果。旧宿主目录中已完成的作业可用 `af-image-fs import-completed "$JOB_KEY"` 导入，工具校验所有块后一次提交，保留原目录。单独持有正常关闭后的镜像也可以列出和导出已完成作业。
+
 ## C 模块：真实图片往返
 
 单机集群启动后，在已配置 Afanasy Python 客户端与 IMAGE_LAB_ROOT 的提交环境安装 python3-opencv，并运行：
@@ -38,4 +55,4 @@ python3 -u course/integration.py
 /usr/bin/python3 course/image_job.py photo.png inverted.png --operation invert
 ```
 
-输入按文件内容识别 PNG 或 JPEG，解码为原始存储方向的三通道 RGB8（舍弃透明度）。原文件和解码像素一起保存在作业目录。命令等待真实作业完成，按块号计算二维坐标，从正式块读取像素，全部尺寸校验成功后原子发布 PNG。集成测试使用 130×150 的非对称彩图、64×64 图块和独立的整图参考，重新打开实际导出的 PNG 逐像素比较。JPEG 的参考输入取自有损编码后的解码图。
+输入按文件内容识别 PNG 或 JPEG，解码为原始存储方向的三通道 RGB8（舍弃透明度）。原文件和解码像素保存在镜像内的作业目录。afserver 收到最后一块时按坐标拼图，与最终 PNG 一起提交；下载命令直接导出该 PNG。集成测试使用 130×150 的非对称彩图、64×64 图块和独立的整图参考，重新打开实际导出的 PNG 逐像素比较。JPEG 的参考输入取自有损编码后的解码图。
